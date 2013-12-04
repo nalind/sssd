@@ -52,6 +52,7 @@
 #define FLAGS_USE_FIRST_PASS (1 << 0)
 #define FLAGS_FORWARD_PASS   (1 << 1)
 #define FLAGS_USE_AUTHTOK    (1 << 2)
+#define FLAGS_USE_MULTI_PASS (1 << 3)
 
 #define PWEXP_FLAG "pam_sss:password_expired_flag"
 #define FD_DESTRUCTOR "pam_sss:fd_destructor"
@@ -62,6 +63,85 @@
 #define OPT_RETRY_KEY "retry="
 
 struct pam_items {
+    struct sss_pam_v4_request {
+        uint32_t context;
+        enum sss_pam_v4_request_subrequest {
+            sss_pam_one_shot = 0,
+            sss_pam_start,
+            sss_pam_continue,
+            sss_pam_cancel,
+        } step;
+        struct sss_pam_v4_request_item {
+            uint32_t group;
+            uint32_t id;
+            union {
+                struct sss_pam_request_password {
+                    char *password;
+                } password;
+                struct sss_pam_request_new_password {
+                    char *new_password;
+                } new_password;
+                struct sss_pam_request_secret {
+                    char *secret;
+                } secret;
+                struct sss_pam_request_otp {
+                    char *otp;
+                } otp;
+                struct sss_pam_request_smart_card_pin {
+                    char *pin;
+                } smart_card_pin;
+                struct sss_pam_request_generic {
+                    char *value;
+                } unspecified;
+            } detail;
+        } *requests;
+        unsigned int n_requests;
+    } auth_request;
+    struct sss_pam_v4_reply {
+        uint32_t context;
+        enum sss_pam_v4_reply_substatus {
+            sss_pam_invalid = 0,
+            sss_pam_to_be_continued,
+            sss_pam_failed,
+            sss_pam_canceled,
+            sss_pam_timeout,
+            sss_pam_success,
+        } status;
+        int32_t time_left;
+        struct sss_pam_v4_reply_item {
+            uint32_t group;
+            uint32_t id;
+            enum sss_pam_reply_type {
+                SSS_PAM_PROMPT_SECRET = 0,
+                SSS_PAM_PROMPT_PASSWORD,
+                SSS_PAM_PROMPT_NEW_PASSWORD,
+                SSS_PAM_PROMPT_OTP,
+                SSS_PAM_PROMPT_SMART_CARD_PIN,
+                SSS_PAM_PROMPT_OOB_SMART_CARD_PIN,
+                SSS_PAM_PROMPT_INSERT_SMART_CARD,
+                SSS_PAM_PROMPT_SCAN_PROXIMITY_DEVICE,
+                SSS_PAM_PROMPT_SWIPE_FINGER,
+            } type;
+            union {
+                struct sss_pam_reply_secret_detail {
+                    char *prompt;
+                } secret;
+                struct sss_pam_reply_otp_detail {
+                    uint32_t token_id;
+                    char *service;
+                    char *vendor;
+                } otp;
+                struct sss_pam_reply_smart_card_pin_detail {
+                    char *module;
+                    uint32_t slot_id;
+                    char *slot;
+                    char *token;
+                } smart_card_pin;
+            } detail;
+        } *replies;
+        unsigned int n_replies;
+        unsigned int n_groups;
+    } auth_reply;
     const char* pam_service;
     const char* pam_user;
     const char* pam_tty;
@@ -161,6 +241,36 @@ static size_t add_authtok_item(enum pam_item_type type,
     return rp;
 }
 
+static size_t add_request_item(uint32_t group,
+                               uint32_t id,
+                               const char *tok, const size_t size,
+                               uint8_t *buf) {
+    size_t rp=0;
+    uint32_t c;
+
+    if (tok == NULL) return 0;
+
+    c = SSS_PAM_ITEM_AUTH_ANSWER;
+    memcpy(&buf[rp], &c, sizeof(uint32_t));
+    rp += sizeof(uint32_t);
+
+    c = group;
+    memcpy(&buf[rp], &c, sizeof(uint32_t));
+    rp += sizeof(uint32_t);
+
+    c = id;
+    memcpy(&buf[rp], &c, sizeof(uint32_t));
+    rp += sizeof(uint32_t);
+
+    c = size;
+    memcpy(&buf[rp], &c, sizeof(uint32_t));
+    rp += sizeof(uint32_t);
+
+    memcpy(&buf[rp], tok, size);
+    rp += size;
+
+    return rp;
+}
 
 static size_t add_uint32_t_item(enum pam_item_type type, const uint32_t val,
                                 uint8_t *buf) {
@@ -203,6 +313,79 @@ static size_t add_string_item(enum pam_item_type type, const char *str,
     return rp;
 }
 
+static void overwrite_and_free_auth_request_items(struct pam_items *pi)
+{
+    unsigned int i;
+    char *tmp;
+
+    for (i = 0; i < pi->auth_request.n_requests; i++) {
+        tmp = pi->auth_request.requests[i].detail.unspecified.value;
+        _pam_overwrite_n(tmp, strlen(tmp));
+        free(tmp);
+    }
+    free(pi->auth_request.requests);
+    pi->auth_request.requests = NULL;
+    pi->auth_request.n_requests = 0;
+}
+
+static void overwrite_and_free_auth_reply_items(struct pam_items *pi)
+{
+    unsigned int i;
+    char **s1, **s2, **s3;
+
+    for (i = 0; i < pi->auth_reply.n_replies; i++) {
+        s1 = NULL;
+        s2 = NULL;
+        s3 = NULL;
+        switch (pi->auth_reply.replies[i].type) {
+        case SSS_PAM_PROMPT_SECRET:
+            s1 = &pi->auth_reply.replies[i].detail.secret.prompt;
+            break;
+        case SSS_PAM_PROMPT_PASSWORD:
+            s1 = &pi->auth_reply.replies[i].detail.secret.prompt;
+            break;
+        case SSS_PAM_PROMPT_NEW_PASSWORD:
+            s1 = &pi->auth_reply.replies[i].detail.secret.prompt;
+            break;
+        case SSS_PAM_PROMPT_OTP:
+            s1 = &pi->auth_reply.replies[i].detail.otp.service;
+            s2 = &pi->auth_reply.replies[i].detail.otp.vendor;
+            break;
+        case SSS_PAM_PROMPT_SCAN_PROXIMITY_DEVICE:
+            break;
+        case SSS_PAM_PROMPT_SWIPE_FINGER:
+            break;
+        case SSS_PAM_PROMPT_INSERT_SMART_CARD:
+        case SSS_PAM_PROMPT_SMART_CARD_PIN:
+        case SSS_PAM_PROMPT_OOB_SMART_CARD_PIN:
+            s1 = &pi->auth_reply.replies[i].detail.smart_card_pin.module;
+            s2 = &pi->auth_reply.replies[i].detail.smart_card_pin.slot;
+            s3 = &pi->auth_reply.replies[i].detail.smart_card_pin.token;
+            break;
+        }
+        if ((s1 != NULL) && (*s1 != NULL)) {
+            _pam_overwrite_n(*s1, strlen(*s1));
+            free(*s1);
+            *s1 = NULL;
+        }
+        if ((s2 != NULL) && (*s2 != NULL)) {
+            _pam_overwrite_n(*s2, strlen(*s2));
+            free(*s2);
+            *s2 = NULL;
+        }
+        if ((s3 != NULL) && (*s3 != NULL)) {
+            _pam_overwrite_n(*s3, strlen(*s3));
+            free(*s3);
+            *s3 = NULL;
+        }
+        memset(&pi->auth_reply.replies[i], 0,
+               sizeof(pi->auth_reply.replies[i]));
+    }
+    free(pi->auth_reply.replies);
+    pi->auth_reply.replies = NULL;
+    pi->auth_reply.n_replies = 0;
+}
+
 static void overwrite_and_free_pam_items(struct pam_items *pi)
 {
     if (pi->pam_authtok != NULL) {
@@ -222,15 +405,21 @@ static void overwrite_and_free_pam_items(struct pam_items *pi)
 
     free(pi->domain_name);
     pi->domain_name = NULL;
+
+    overwrite_and_free_auth_request_items(pi);
+    overwrite_and_free_auth_reply_items(pi);
 }
 
-static int pack_message_v3(struct pam_items *pi, size_t *size,
+static int pack_message_v4(struct pam_items *pi, size_t *size,
                            uint8_t **buffer) {
     int len;
+    unsigned int i;
     uint8_t *buf;
     size_t rp;
+    uint32_t tmp;
 
     len = sizeof(uint32_t) +
+          3*sizeof(uint32_t) +
           2*sizeof(uint32_t) + pi->pam_user_size +
           sizeof(uint32_t);
     len += *pi->pam_service != '\0' ?
@@ -247,6 +436,11 @@ static int pack_message_v3(struct pam_items *pi, size_t *size,
                 3*sizeof(uint32_t) + pi->pam_newauthtok_size : 0;
     len += 3*sizeof(uint32_t); /* cli_pid */
 
+    for (i = 0; i < pi->auth_request.n_requests; i++) {
+        tmp = strlen(pi->auth_request.requests[i].detail.unspecified.value);
+        len += 4 * sizeof(uint32_t) + tmp;
+    }
+
     buf = malloc(len);
     if (buf == NULL) {
         D(("malloc failed."));
@@ -255,6 +449,11 @@ static int pack_message_v3(struct pam_items *pi, size_t *size,
 
     rp = 0;
     SAFEALIGN_SETMEM_UINT32(buf, SSS_START_OF_PAM_REQUEST, &rp);
+
+    SAFEALIGN_SETMEM_UINT32(buf, SSS_PAM_ITEM_SUBCMD, &rp);
+    SAFEALIGN_SETMEM_UINT32(buf, pi->auth_request.context, &rp);
+    tmp = pi->auth_request.step;
+    SAFEALIGN_SETMEM_UINT32(buf, tmp, &rp);
 
     rp += add_string_item(SSS_PAM_ITEM_USER, pi->pam_user, pi->pam_user_size,
                           &buf[rp]);
@@ -280,6 +479,15 @@ static int pack_message_v3(struct pam_items *pi, size_t *size,
     rp += add_authtok_item(SSS_PAM_ITEM_NEWAUTHTOK, pi->pam_newauthtok_type,
                            pi->pam_newauthtok, pi->pam_newauthtok_size,
                            &buf[rp]);
+
+    for (i = 0; i < pi->auth_request.n_requests; i++) {
+        tmp = strlen(pi->auth_request.requests[i].detail.unspecified.value);
+        rp += add_request_item(pi->auth_request.requests[i].group,
+                               pi->auth_request.requests[i].id,
+                               pi->auth_request.requests[i].detail.unspecified.value,
+                               tmp,
+                               &buf[rp]);
+    }
 
     SAFEALIGN_SETMEM_UINT32(buf + rp, SSS_END_OF_PAM_REQUEST, &rp);
 
@@ -822,6 +1030,36 @@ static int user_info_chpass_error(pam_handle_t *pamh, size_t buflen,
     return PAM_SUCCESS;
 }
 
+static char *uint8_t_dup(uint8_t *buf, int32_t len)
+{
+    /* Keep the cast here, and the dereferencing elsewhere. */
+    return strndup((const char *) buf, len);
+}
+
+static int eval_reply_string(uint8_t **buf, int32_t *len, char **p)
+{
+    int32_t c;
+
+    if (*len < sizeof(int32_t)) {
+       return PAM_BUF_ERR;
+    }
+    memcpy(&c, *buf, sizeof(int32_t));
+    *buf += sizeof(int32_t);
+    *len -= sizeof(int32_t);
+
+    if (c > 0) {
+        if (*len < c) {
+           return PAM_BUF_ERR;
+        }
+        *p = uint8_t_dup(*buf, c);
+        *buf += c;
+        *len -= c;
+    } else {
+        *p = NULL;
+    }
+
+    return 0;
+}
 
 static int eval_user_info_response(pam_handle_t *pamh, size_t buflen,
                                    uint8_t *buf)
@@ -861,6 +1099,165 @@ static int eval_user_info_response(pam_handle_t *pamh, size_t buflen,
     }
 
     return ret;
+}
+
+static int eval_auth_substatus(struct pam_items *pi, uint8_t *p, int32_t len)
+{
+    int32_t c;
+
+    if (len < 3 * sizeof(uint32_t)) {
+        return PAM_BUF_ERR;
+    }
+
+    memcpy(&c, p, sizeof(int32_t));
+    p += sizeof(int32_t);
+    len -= sizeof(int32_t);
+    if (c != pi->auth_reply.context) {
+        D(("Unknown reply context [%d, expected %d]", c,
+           pi->auth_reply.context));
+        return PAM_SYSTEM_ERR;
+    }
+
+    memcpy(&c, p, sizeof(int32_t));
+    p += sizeof(int32_t);
+    len -= sizeof(int32_t);
+    pi->auth_reply.status = c;
+
+    memcpy(&c, p, sizeof(int32_t));
+    p += sizeof(int32_t);
+    len -= sizeof(int32_t);
+    pi->auth_reply.time_left = c;
+
+    return (len == 0) ? 0 : PAM_BUF_ERR;
+}
+
+static int eval_auth_request(struct pam_items *pi, uint8_t *p, int32_t len)
+{
+    int ret;
+    unsigned int i;
+    uint32_t c;
+    struct sss_pam_v4_reply_item reply, *replies;
+    unsigned int n_groups;
+
+    if (len < 3 * sizeof(uint32_t)) {
+        return PAM_BUF_ERR;
+    }
+
+    memset(&reply, 0, sizeof(reply));
+
+    memcpy(&c, p, sizeof(int32_t));
+    p += sizeof(int32_t);
+    len -= sizeof(int32_t);
+    reply.group = c;
+
+    memcpy(&c, p, sizeof(int32_t));
+    p += sizeof(int32_t);
+    len -= sizeof(int32_t);
+    reply.id = c;
+
+    memcpy(&c, p, sizeof(int32_t));
+    p += sizeof(int32_t);
+    len -= sizeof(int32_t);
+    reply.type = c;
+
+    switch (reply.type) {
+    case SSS_PAM_PROMPT_PASSWORD:
+    case SSS_PAM_PROMPT_NEW_PASSWORD:
+    case SSS_PAM_PROMPT_SCAN_PROXIMITY_DEVICE:
+    case SSS_PAM_PROMPT_SWIPE_FINGER:
+        break;
+    case SSS_PAM_PROMPT_SECRET:
+        if (len < sizeof(uint32_t)) {
+            return PAM_BUF_ERR;
+        }
+        ret = eval_reply_string(&p, &len, &reply.detail.secret.prompt);
+        if (ret != 0) {
+            return ret;
+        }
+        break;
+    case SSS_PAM_PROMPT_OTP:
+        if (len < 2 * sizeof(uint32_t)) {
+            return PAM_BUF_ERR;
+        }
+        ret = eval_reply_string(&p, &len, &reply.detail.otp.service);
+        if (ret != 0) {
+            return ret;
+        }
+        ret = eval_reply_string(&p, &len, &reply.detail.otp.vendor);
+        if (ret != 0) {
+            free(reply.detail.otp.service);
+            return ret;
+        }
+        break;
+    case SSS_PAM_PROMPT_INSERT_SMART_CARD:
+        if (len < 3 * sizeof(uint32_t)) {
+            return PAM_BUF_ERR;
+        }
+        ret = eval_reply_string(&p, &len, &reply.detail.smart_card_pin.module);
+        if (ret != 0) {
+            return ret;
+        }
+        memcpy(&c, p, sizeof(int32_t));
+        p += sizeof(int32_t);
+        len -= sizeof(int32_t);
+        reply.detail.smart_card_pin.slot_id = c;
+        ret = eval_reply_string(&p, &len, &reply.detail.smart_card_pin.slot);
+        if (ret != 0) {
+            free(reply.detail.smart_card_pin.module);
+            return ret;
+        }
+        break;
+    case SSS_PAM_PROMPT_SMART_CARD_PIN:
+    case SSS_PAM_PROMPT_OOB_SMART_CARD_PIN:
+        if (len < 4 * sizeof(uint32_t)) {
+            return PAM_BUF_ERR;
+        }
+        ret = eval_reply_string(&p, &len, &reply.detail.smart_card_pin.module);
+        if (ret != 0) {
+            return ret;
+        }
+        memcpy(&c, p, sizeof(int32_t));
+        p += sizeof(int32_t);
+        len -= sizeof(int32_t);
+        reply.detail.smart_card_pin.slot_id = c;
+        ret = eval_reply_string(&p, &len, &reply.detail.smart_card_pin.slot);
+        if (ret != 0) {
+            free(reply.detail.smart_card_pin.module);
+            return ret;
+        }
+        ret = eval_reply_string(&p, &len, &reply.detail.smart_card_pin.token);
+        if (ret != 0) {
+            free(reply.detail.smart_card_pin.module);
+            free(reply.detail.smart_card_pin.slot);
+            return ret;
+        }
+        break;
+    }
+
+    replies = calloc(pi->auth_reply.n_replies + 1, sizeof(*replies));
+    if (replies == NULL) {
+        return PAM_BUF_ERR;
+    }
+
+    for (i = 0; i < pi->auth_reply.n_replies; i++) {
+        replies[i] = pi->auth_reply.replies[i];
+    }
+    replies[i] = reply;
+
+    free(pi->auth_reply.replies);
+    pi->auth_reply.replies = replies;
+    pi->auth_reply.n_replies++;
+
+    n_groups = 0;
+    for (i = 0; i < pi->auth_reply.n_replies; i++) {
+        if (pi->auth_reply.replies[i].group > n_groups) {
+            n_groups = pi->auth_reply.replies[i].group + 1;
+        }
+    }
+
+    pi->auth_reply.n_groups = n_groups;
+
+    return (len == 0) ? 0 : PAM_BUF_ERR;
 }
 
 static int eval_response(pam_handle_t *pamh, size_t buflen, uint8_t *buf,
@@ -970,6 +1367,18 @@ static int eval_response(pam_handle_t *pamh, size_t buflen, uint8_t *buf,
                     D(("do_pam_conversation failed."));
                 }
                 break;
+            case SSS_PAM_SUBSTATUS:
+                ret = eval_auth_substatus(pi, buf, len);
+                if (ret != PAM_SUCCESS) {
+                    D(("eval_auth_substatus failed."));
+                }
+                break;
+            case SSS_PAM_ITEM_AUTH_REQUEST:
+                ret = eval_auth_request(pi, buf, len);
+                if (ret != PAM_SUCCESS) {
+                    D(("eval_auth_request failed."));
+                }
+                break;
             default:
                 D(("Unknown response type [%d]", type));
         }
@@ -984,6 +1393,18 @@ static int eval_response(pam_handle_t *pamh, size_t buflen, uint8_t *buf,
 static int get_pam_items(pam_handle_t *pamh, struct pam_items *pi)
 {
     int ret;
+    static int new_context;
+
+    pi->auth_request.context = ++new_context;
+    pi->auth_request.step = sss_pam_start;
+    pi->auth_request.requests = NULL;
+    pi->auth_request.n_requests = 0;
+    pi->auth_reply.context = 0;
+    pi->auth_reply.status = sss_pam_invalid;
+    pi->auth_reply.time_left = -1;
+    pi->auth_reply.replies = NULL;
+    pi->auth_reply.n_replies = 0;
+    pi->auth_reply.n_groups = 0;
 
     pi->pam_authtok_type = SSS_AUTHTOK_TYPE_EMPTY;
     pi->pam_authtok = NULL;
@@ -1077,7 +1498,7 @@ static int send_and_receive(pam_handle_t *pamh, struct pam_items *pi,
 
     print_pam_items(pi);
 
-    ret = pack_message_v3(pi, &rd.len, &buf);
+    ret = pack_message_v4(pi, &rd.len, &buf);
     if (ret != 0) {
         D(("pack_message failed."));
         pam_status = PAM_SYSTEM_ERR;
@@ -1085,8 +1506,12 @@ static int send_and_receive(pam_handle_t *pamh, struct pam_items *pi,
     }
     rd.data = buf;
 
+    overwrite_and_free_auth_reply_items(pi);
+
     errnop = 0;
     ret = sss_pam_make_request(task, &rd, &repbuf, &replen, &errnop);
+
+    overwrite_and_free_auth_request_items(pi);
 
     sret = pam_set_data(pamh, FD_DESTRUCTOR, NULL, close_fd);
     if (sret != PAM_SUCCESS) {
@@ -1120,10 +1545,11 @@ static int send_and_receive(pam_handle_t *pamh, struct pam_items *pi,
         case SSS_PAM_AUTHENTICATE:
             logger(pamh, (pam_status == PAM_SUCCESS ? LOG_INFO : LOG_NOTICE),
                    "authentication %s; logname=%s uid=%lu euid=%d tty=%s "
-                   "ruser=%s rhost=%s user=%s",
+                   "ruser=%s rhost=%s user=%s seq=%lu",
                    pam_status == PAM_SUCCESS ? "success" : "failure",
                    pi->login_name, getuid(), (unsigned long) geteuid(),
-                   pi->pam_tty, pi->pam_ruser, pi->pam_rhost, pi->pam_user);
+                   pi->pam_tty, pi->pam_ruser, pi->pam_rhost, pi->pam_user,
+                   (unsigned long) pi->auth_request.context);
             if (pam_status != PAM_SUCCESS) {
                 /* don't log if quiet_mode is on and pam_status is
                  * User not known to the underlying authentication module
@@ -1251,6 +1677,281 @@ static int prompt_new_password(pam_handle_t *pamh, struct pam_items *pi)
     return PAM_SUCCESS;
 }
 
+static char *describe_reply_item(struct sss_pam_v4_reply_item *item,
+                                 int *pam_style)
+{
+    char *item_desc;
+    int style;
+
+    switch (item->type) {
+    case SSS_PAM_PROMPT_SECRET:
+        if (asprintf(&item_desc, _("Secret (%s)"),
+                     item->detail.secret.prompt) < 0) {
+            item_desc = NULL;
+        } else {
+            item_desc = strdup(_("Secret"));
+        }
+        style = PAM_PROMPT_ECHO_OFF;
+        break;
+    case SSS_PAM_PROMPT_PASSWORD:
+        item_desc = strdup(_("Password"));
+        style = PAM_PROMPT_ECHO_OFF;
+        break;
+    case SSS_PAM_PROMPT_NEW_PASSWORD:
+        item_desc = strdup(_("New Password"));
+        style = PAM_PROMPT_ECHO_OFF;
+        break;
+    case SSS_PAM_PROMPT_OTP:
+        if ((item->detail.otp.token_id != 0) &&
+            (item->detail.otp.service != NULL) &&
+            (item->detail.otp.vendor != NULL)) {
+            if (asprintf(&item_desc,
+                         _("One-time Password (token %d, service %s, vendor %s)"),
+                         item->detail.otp.token_id,
+                         item->detail.otp.service,
+                         item->detail.otp.vendor) < 0) {
+                item_desc = NULL;
+            }
+        } else
+        if ((item->detail.otp.service != NULL) &&
+            (item->detail.otp.vendor != NULL)) {
+            if (asprintf(&item_desc,
+                         _("One-time Password (service %s, vendor %s)"),
+                         item->detail.otp.service,
+                         item->detail.otp.vendor) < 0) {
+                item_desc = NULL;
+            }
+        } else
+        if (item->detail.otp.vendor != NULL) {
+            if (asprintf(&item_desc,
+                         _("One-time Password (vendor %s)"),
+                         item->detail.otp.vendor) < 0) {
+                item_desc = NULL;
+            }
+        } else
+        if (item->detail.otp.service != NULL) {
+            if (asprintf(&item_desc,
+                         _("One-time Password (service %s)"),
+                         item->detail.otp.service) < 0) {
+                item_desc = NULL;
+            }
+        } else
+        if (item->detail.otp.token_id != 0) {
+            if (asprintf(&item_desc,
+                         _("One-time Password (token %d)"),
+                         item->detail.otp.token_id) < 0) {
+                item_desc = NULL;
+            }
+        } else {
+            item_desc = strdup(_("One-time Password"));
+        }
+        style = PAM_PROMPT_ECHO_OFF;
+        break;
+    case SSS_PAM_PROMPT_INSERT_SMART_CARD:
+        if (item->detail.smart_card_pin.slot != NULL) {
+            if (asprintf(&item_desc,
+                         _("Smart Card (insert into reader %s)"),
+                         item->detail.smart_card_pin.slot) < 0) {
+                item_desc = NULL;
+            }
+        } else {
+            item_desc = strdup(_("Insert Smart Card"));
+        }
+        style = PAM_PROMPT_ECHO_ON;
+        break;
+    case SSS_PAM_PROMPT_SMART_CARD_PIN:
+        if ((item->detail.smart_card_pin.slot != NULL) &&
+            (item->detail.smart_card_pin.token != NULL)) {
+            if (asprintf(&item_desc,
+                         _("Smart Card (token %s in slot %s)"),
+                         item->detail.smart_card_pin.token,
+                         item->detail.smart_card_pin.slot) < 0) {
+                item_desc = NULL;
+            }
+        } else {
+            item_desc = strdup(_("Smart Card"));
+        }
+        style = PAM_PROMPT_ECHO_OFF;
+        break;
+    case SSS_PAM_PROMPT_OOB_SMART_CARD_PIN:
+        if ((item->detail.smart_card_pin.slot != NULL) &&
+            (item->detail.smart_card_pin.token != NULL)) {
+            if (asprintf(&item_desc,
+                         _("Smart Card with External PIN Entry (token %s in slot %s)"),
+                         item->detail.smart_card_pin.token,
+                         item->detail.smart_card_pin.slot) < 0) {
+                item_desc = NULL;
+            }
+        } else {
+            item_desc = strdup(_("Smart Card with External PIN Entry"));
+        }
+        style = PAM_PROMPT_ECHO_ON;
+        break;
+    case SSS_PAM_PROMPT_SCAN_PROXIMITY_DEVICE:
+        item_desc = strdup(_("Proximity Device"));
+        style = PAM_PROMPT_ECHO_ON;
+        break;
+    case SSS_PAM_PROMPT_SWIPE_FINGER:
+        item_desc = strdup(_("Fingerprint"));
+        style = PAM_PROMPT_ECHO_ON;
+        break;
+    }
+    if (pam_style != NULL) {
+        *pam_style = style;
+    }
+    return item_desc;
+}
+
+static int prompt_auth_request(pam_handle_t *pamh, struct pam_items *pi,
+                               uint32_t flags)
+{
+    struct pam_conv *conv;
+    struct pam_message *msgs;
+    const struct pam_message *cmsgs;
+    struct pam_response *resps;
+    char **desc, **group_desc, *item_desc, *tmp;
+    int ret, i, j, n_items, group, style;
+    struct sss_pam_v4_request_item *req_item;
+    struct sss_pam_v4_reply_item *reply_item;
+
+    ret = pam_get_item(pamh, PAM_CONV, (const void **) &conv);
+    if (ret != PAM_SUCCESS) {
+        return ret;
+    }
+
+    group = 0;
+    if (pi->auth_reply.n_groups != 0) {
+        group_desc = calloc(pi->auth_reply.n_groups, sizeof(char *));
+        msgs = calloc(pi->auth_reply.n_groups + 1, sizeof(*msgs));
+        if (msgs == NULL) {
+            return PAM_BUF_ERR;
+        }
+        msgs[0].msg_style = PAM_PROMPT_ECHO_ON;
+        msgs[0].msg = _("Please select an authentication method:");
+        for (i = 0; i < pi->auth_reply.n_groups; i++) {
+            group_desc[i] = NULL;
+            for (j = 0; j < pi->auth_reply.n_replies; j++) {
+                reply_item = &pi->auth_reply.replies[j];
+                if (reply_item->group != i) {
+                    continue;
+                }
+                item_desc = describe_reply_item(reply_item, NULL);
+                if (item_desc == NULL) {
+                    return PAM_BUF_ERR;
+                }
+                if (group_desc[i] == NULL) {
+                    ret = asprintf(&group_desc[i], "%d: %s", i + 1, item_desc);
+                } else {
+                    ret = asprintf(&tmp, "%s + %s", group_desc[i], item_desc);
+                    if (ret > 0) {
+                        free(group_desc[i]);
+                        group_desc[i] = tmp;
+                    }
+                }
+                free(item_desc);
+                if (ret < 0) {
+                    return PAM_BUF_ERR;
+                }
+            }
+            msgs[i + 1].msg_style = PAM_TEXT_INFO;
+            msgs[i + 1].msg = group_desc[i];
+        }
+        resps = NULL;
+        cmsgs = msgs;
+        ret = conv->conv(i + 1, &cmsgs, &resps, conv->appdata_ptr);
+        if (ret != PAM_SUCCESS) {
+            return ret;
+        }
+        if ((resps != NULL) &&
+            (resps[0].resp_retcode == PAM_SUCCESS) &&
+            (resps[0].resp != NULL)) {
+            group = atoi(resps[0].resp);
+            if (group == 0) {
+                return PAM_CONV_ERR;
+            }
+            group--;
+            free(resps[0].resp);
+        }
+        free(resps);
+        for (i = 0; i < pi->auth_reply.n_groups; i++) {
+            free(group_desc[i]);
+        }
+        free(group_desc);
+        free(msgs);
+    }
+
+    n_items = 0;
+    for (i = 0; i < pi->auth_reply.n_replies; i++) {
+        reply_item = &pi->auth_reply.replies[i];
+        if (reply_item->group == group) {
+            n_items++;
+        }
+    }
+
+    if (n_items > 0) {
+        msgs = calloc(n_items, sizeof(*msgs));
+        desc = calloc(n_items, sizeof(char *));
+        if (msgs == NULL) {
+            return PAM_BUF_ERR;
+        }
+        j = 0;
+        for (i = 0; i < pi->auth_reply.n_replies; i++) {
+            reply_item = &pi->auth_reply.replies[i];
+            if (reply_item->group != group) {
+                continue;
+            }
+            desc[j] = describe_reply_item(reply_item, &style);
+            if (desc[j] == NULL) {
+                return PAM_BUF_ERR;
+            }
+            msgs[j].msg_style = style;
+            msgs[j].msg = desc[j];
+            j++;
+        }
+
+        resps = NULL;
+        cmsgs = msgs;
+        ret = conv->conv(j, &cmsgs, &resps, conv->appdata_ptr);
+        if (ret != PAM_SUCCESS) {
+            return ret;
+        }
+
+        pi->auth_request.requests = calloc(n_items, sizeof(*pi->auth_request.requests));
+        if (pi->auth_request.requests == NULL) {
+            return PAM_BUF_ERR;
+        }
+
+        j = 0;
+        for (i = 0; i < pi->auth_reply.n_replies; i++) {
+            reply_item = &pi->auth_reply.replies[i];
+            if (reply_item->group != group) {
+                continue;
+            }
+            req_item = &pi->auth_request.requests[j];
+            req_item->group = reply_item->group;
+            req_item->id = reply_item->id;
+            if ((resps != NULL) &&
+                (resps[j].resp_retcode == PAM_SUCCESS) &&
+                (resps[j].resp != NULL)) {
+                req_item->detail.unspecified.value = strdup(resps[j].resp);
+                if (req_item->detail.unspecified.value == NULL) {
+                    return PAM_BUF_ERR;
+                }
+                free(resps[j].resp);
+            }
+        }
+        free(resps);
+        for (i = 0; i < n_items; i++) {
+            free(desc[i]);
+        }
+        free(desc);
+        free(msgs);
+        pi->auth_request.n_requests = j;
+    }
+
+    return PAM_SUCCESS;
+}
+
 static void eval_argv(pam_handle_t *pamh, int argc, const char **argv,
                       uint32_t *flags, int *retries, bool *quiet_mode)
 {
@@ -1265,6 +1966,8 @@ static void eval_argv(pam_handle_t *pamh, int argc, const char **argv,
             *flags |= FLAGS_USE_FIRST_PASS;
         } else if (strcmp(*argv, "use_authtok") == 0) {
             *flags |= FLAGS_USE_AUTHTOK;
+        } else if (strcmp(*argv, "multi_pass") == 0) {
+            *flags |= FLAGS_USE_MULTI_PASS;
         } else if (strncmp(*argv, OPT_RETRY_KEY, strlen(OPT_RETRY_KEY)) == 0) {
             if (*(*argv+6) == '\0') {
                 logger(pamh, LOG_ERR, "Missing argument to option retry.");
@@ -1303,7 +2006,15 @@ static int get_authtok_for_authentication(pam_handle_t *pamh,
 {
     int ret;
 
-    if (flags & FLAGS_USE_FIRST_PASS) {
+    if ((flags & FLAGS_USE_MULTI_PASS) &&
+        (pi->auth_request.step == sss_pam_continue) &&
+        (pi->auth_reply.replies != NULL)) {
+        ret = prompt_auth_request(pamh, pi, flags);
+        if (ret != 0) {
+            D(("error getting information for next auth request"));
+            return ret;
+        }
+    } else if (flags & FLAGS_USE_FIRST_PASS) {
         pi->pam_authtok_type = SSS_AUTHTOK_TYPE_PASSWORD;
         pi->pam_authtok = strdup(pi->pamstack_authtok);
         if (pi->pam_authtok == NULL) {
@@ -1429,6 +2140,13 @@ static int pam_sss(enum sss_cli_command task, pam_handle_t *pamh,
         return ret;
     }
 
+    if ((task == SSS_PAM_AUTHENTICATE) &&
+        (flags & FLAGS_USE_MULTI_PASS)) {
+        pi.auth_request.step = sss_pam_start;
+    } else {
+        pi.auth_request.step = sss_pam_one_shot;
+    }
+
     do {
         retry = false;
 
@@ -1466,6 +2184,16 @@ static int pam_sss(enum sss_cli_command task, pam_handle_t *pamh,
 
         switch (task) {
             case SSS_PAM_AUTHENTICATE:
+                if (flags & FLAGS_USE_MULTI_PASS) {
+                    if ((pam_status == PAM_INCOMPLETE) &&
+                        (pi.auth_reply.status == sss_pam_to_be_continued)) {
+                        pi.auth_request.step = sss_pam_continue;
+                        continue;
+                    } else {
+                        D(("authentication failed."));
+                        break;
+                    }
+                }
                 /* We allow sssd to send the return code PAM_NEW_AUTHTOK_REQD during
                  * authentication, see sss_cli.h for details */
                 if (pam_status == PAM_NEW_AUTHTOK_REQD) {

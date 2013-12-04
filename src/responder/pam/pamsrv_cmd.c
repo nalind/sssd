@@ -1235,6 +1235,7 @@ static int pam_cmd_chauthtok_prelim(struct cli_ctx *cctx) {
 struct cli_protocol_version *register_cli_protocol_version(void)
 {
     static struct cli_protocol_version pam_cli_protocol_version[] = {
+        {4, "2013-12-31", "multi-step authentication"},
         {3, "2009-09-14", "make cli_pid mandatory"},
         {2, "2009-05-12", "new format <type><size><data>"},
         {1, "2008-09-05", "initial version, \\0 terminated strings"},

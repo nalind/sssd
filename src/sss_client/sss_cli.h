@@ -45,7 +45,7 @@ typedef int errno_t;
 #endif
 
 #define SSS_NSS_PROTOCOL_VERSION 1
-#define SSS_PAM_PROTOCOL_VERSION 3
+#define SSS_PAM_PROTOCOL_VERSION 4
 #define SSS_SUDO_PROTOCOL_VERSION 1
 #define SSS_AUTOFS_PROTOCOL_VERSION 1
 #define SSS_SSH_PROTOCOL_VERSION 0
@@ -294,6 +294,9 @@ enum sss_authtok_type {
                                           * a Kerberos credential cache file,
                                           * it may or may no contain
                                           * a trailing \\0 */
+    SSS_AUTHTOK_TYPE_SECRET   =  0x0003,
+    SSS_AUTHTOK_TYPE_OTP      =  0x0004,
+    SSS_AUTHTOK_TYPE_SMART_CARD_PIN = 5,
 };
 
 /**
@@ -314,6 +317,8 @@ enum pam_item_type {
     SSS_PAM_ITEM_NEWAUTHTOK,
     SSS_PAM_ITEM_CLI_LOCALE,
     SSS_PAM_ITEM_CLI_PID,
+    SSS_PAM_ITEM_SUBCMD,
+    SSS_PAM_ITEM_AUTH_ANSWER,
 };
 
 #define SSS_NSS_MAX_ENTRIES 256
@@ -393,6 +398,8 @@ enum response_type {
     SSS_OTP,             /**< Indicates that the autotok was a OTP, so don't
                           * cache it. There is no message.
                           * @param None. */
+    SSS_PAM_SUBSTATUS,
+    SSS_PAM_ITEM_AUTH_REQUEST,
 };
 
 /**
