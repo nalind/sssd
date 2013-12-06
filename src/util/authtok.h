@@ -71,7 +71,7 @@ errno_t sss_authtok_get_password(struct sss_auth_token *tok,
                                  const char **pwd, size_t *len);
 
 /**
- * @brief Set a password into a an auth token, replacing any previous data
+ * @brief Set a password into an auth token, replacing any previous data
  *
  * @param tok        A pointer to a sss_auth_token structure to change, also
  *                   used as a memory context to allocate the internal data.
@@ -102,7 +102,7 @@ errno_t sss_authtok_get_ccfile(struct sss_auth_token *tok,
                                const char **ccfile, size_t *len);
 
 /**
- * @brief Set a cc file name into a an auth token, replacing any previous data
+ * @brief Set a cc file name into an auth token, replacing any previous data
  *
  * @param tok        A pointer to a sss_auth_token structure to change, also
  *                   used as a memory context to allocate the internal data.
@@ -114,6 +114,96 @@ errno_t sss_authtok_get_ccfile(struct sss_auth_token *tok,
  */
 errno_t sss_authtok_set_ccfile(struct sss_auth_token *tok,
                                const char *ccfile, size_t len);
+
+/**
+ * @brief Returns a const string if the auth token is of type
+         SSS_AUTHTOK_TYPE_SECRET, otherwise it returns an error
+ *
+ * @param tok    A pointer to an sss_auth_token
+ * @param secret A pointer to a const char *, that will point to a null
+ *               terminated string, also used as a memory context use to allocate the internal data
+ * @param len    The length of the string
+ *
+ * @return       EOK on success
+ *               ENOENT if the token is empty
+ *               EACCESS if the token is not a password token
+ */
+errno_t sss_authtok_get_secret(struct sss_auth_token *tok,
+                               const char **secret, size_t *len);
+
+/**
+ * @brief Set a secret into an auth token, replacing any previous data
+ *
+ * @param tok        A pointer to a sss_auth_token structure to change, also
+ *                   used as a memory context to allocate the internal data.
+ * @param secret     A null terminated string
+ * @param len    The length of the string
+ *
+ * @return       EOK on success
+ *               ENOMEM on error
+ */
+errno_t sss_authtok_set_secret(struct sss_auth_token *tok,
+                               const char *secret, size_t len);
+
+/**
+ * @brief Returns a const string if the auth token is of type
+         SSS_AUTHTOK_TYPE_OTP, otherwise it returns an error
+ *
+ * @param tok    A pointer to an sss_auth_token
+ * @param otp    A pointer to a const char *, that will point to a null
+ *               terminated string, also used as a memory context use to allocate the internal data
+ * @param len    The length of the string
+ *
+ * @return       EOK on success
+ *               ENOENT if the token is empty
+ *               EACCESS if the token is not a password token
+ */
+errno_t sss_authtok_get_otp(struct sss_auth_token *tok,
+                            const char **otp, size_t *len);
+
+/**
+ * @brief Set an OTP into an auth token, replacing any previous data
+ *
+ * @param tok        A pointer to a sss_auth_token structure to change, also
+ *                   used as a memory context to allocate the internal data.
+ * @param otp        A null terminated string
+ * @param len    The length of the string
+ *
+ * @return       EOK on success
+ *               ENOMEM on error
+ */
+errno_t sss_authtok_set_otp(struct sss_auth_token *tok,
+                            const char *otp, size_t len);
+
+/**
+ * @brief Returns a const string if the auth token is of type
+         SSS_AUTHTOK_TYPE_SMART_CARD_PIN, otherwise it returns an error
+ *
+ * @param tok    A pointer to an sss_auth_token
+ * @param pin    A pointer to a const char *, that will point to a null
+ *               terminated string, also used as a memory context use to allocate the internal data
+ * @param len    The length of the string
+ *
+ * @return       EOK on success
+ *               ENOENT if the token is empty
+ *               EACCESS if the token is not a password token
+ */
+errno_t sss_authtok_get_smart_card_pin(struct sss_auth_token *tok,
+                                       const char **pin, size_t *len);
+
+/**
+ * @brief Set a smart card PIN into an auth token, replacing any previous data
+ *
+ * @param tok        A pointer to a sss_auth_token structure to change, also
+ *                   used as a memory context to allocate the internal data.
+ * @param pin        A null terminated string
+ * @param len    The length of the string
+ *
+ * @return       EOK on success
+ *               ENOMEM on error
+ */
+errno_t sss_authtok_set_smart_card_pin(struct sss_auth_token *tok,
+                                       const char *pin, size_t len);
 
 /**
  * @brief Resets an auth token to the empty status
@@ -166,6 +256,45 @@ errno_t sss_authtok_copy(struct sss_auth_token *src,
  * Use sss_authtok_set_empty() in normal circumstances.
  */
 void sss_authtok_wipe_password(struct sss_auth_token *tok);
+
+/**
+ * @brief Uses safezero to wipe the secret from memory if the
+ *        authtoken contains a secret, otherwise does nothing.
+ *
+ * @param tok       A pointer to a sss_auth_token structure to change
+ *
+ * NOTE: This function should only be used in destructors or similar
+ * functions where freing the actual string is unsafe and where it can
+ * be guaranteed that the auth token will not be used anymore.
+ * Use sss_authtok_set_empty() in normal circumstances.
+ */
+void sss_authtok_wipe_secret(struct sss_auth_token *tok);
+
+/**
+ * @brief Uses safezero to wipe the OTP from memory if the
+ *        authtoken contains an OTP, otherwise does nothing.
+ *
+ * @param tok       A pointer to a sss_auth_token structure to change
+ *
+ * NOTE: This function should only be used in destructors or similar
+ * functions where freing the actual string is unsafe and where it can
+ * be guaranteed that the auth token will not be used anymore.
+ * Use sss_authtok_set_empty() in normal circumstances.
+ */
+void sss_authtok_wipe_otp(struct sss_auth_token *tok);
+
+/**
+ * @brief Uses safezero to wipe the card PIN from memory if the
+ *        authtoken contains a PIN, otherwise does nothing.
+ *
+ * @param tok       A pointer to a sss_auth_token structure to change
+ *
+ * NOTE: This function should only be used in destructors or similar
+ * functions where freing the actual string is unsafe and where it can
+ * be guaranteed that the auth token will not be used anymore.
+ * Use sss_authtok_set_empty() in normal circumstances.
+ */
+void sss_authtok_wipe_smart_card_pin(struct sss_auth_token *tok);
 
 /**
  * @brief Create new empty struct sss_auth_token.

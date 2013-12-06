@@ -38,6 +38,9 @@ size_t sss_authtok_get_size(struct sss_auth_token *tok)
     switch (tok->type) {
     case SSS_AUTHTOK_TYPE_PASSWORD:
     case SSS_AUTHTOK_TYPE_CCFILE:
+    case SSS_AUTHTOK_TYPE_SECRET:
+    case SSS_AUTHTOK_TYPE_OTP:
+    case SSS_AUTHTOK_TYPE_SMART_CARD_PIN:
         return tok->length;
     case SSS_AUTHTOK_TYPE_EMPTY:
         return 0;
@@ -70,6 +73,9 @@ errno_t sss_authtok_get_password(struct sss_auth_token *tok,
         }
         return EOK;
     case SSS_AUTHTOK_TYPE_CCFILE:
+    case SSS_AUTHTOK_TYPE_SECRET:
+    case SSS_AUTHTOK_TYPE_OTP:
+    case SSS_AUTHTOK_TYPE_SMART_CARD_PIN:
         return EACCES;
     }
 
@@ -85,14 +91,86 @@ errno_t sss_authtok_get_ccfile(struct sss_auth_token *tok,
     switch (tok->type) {
     case SSS_AUTHTOK_TYPE_EMPTY:
         return ENOENT;
+    case SSS_AUTHTOK_TYPE_PASSWORD:
+        return EACCES;
     case SSS_AUTHTOK_TYPE_CCFILE:
         *ccfile = (const char *)tok->data;
         if (len) {
             *len = tok->length - 1;
         }
         return EOK;
-    case SSS_AUTHTOK_TYPE_PASSWORD:
+    case SSS_AUTHTOK_TYPE_SECRET:
+    case SSS_AUTHTOK_TYPE_OTP:
+    case SSS_AUTHTOK_TYPE_SMART_CARD_PIN:
         return EACCES;
+    }
+
+    return EINVAL;
+}
+
+errno_t sss_authtok_get_secret(struct sss_auth_token *tok,
+                               const char **ccfile, size_t *len)
+{
+    switch (tok->type) {
+    case SSS_AUTHTOK_TYPE_EMPTY:
+        return ENOENT;
+    case SSS_AUTHTOK_TYPE_PASSWORD:
+    case SSS_AUTHTOK_TYPE_CCFILE:
+        return EACCES;
+    case SSS_AUTHTOK_TYPE_SECRET:
+        *ccfile = (const char *)tok->data;
+        if (len) {
+            *len = tok->length - 1;
+        }
+        return EOK;
+    case SSS_AUTHTOK_TYPE_OTP:
+    case SSS_AUTHTOK_TYPE_SMART_CARD_PIN:
+        return EACCES;
+    }
+
+    return EINVAL;
+}
+
+errno_t sss_authtok_get_otp(struct sss_auth_token *tok,
+                            const char **ccfile, size_t *len)
+{
+    switch (tok->type) {
+    case SSS_AUTHTOK_TYPE_EMPTY:
+        return ENOENT;
+    case SSS_AUTHTOK_TYPE_PASSWORD:
+    case SSS_AUTHTOK_TYPE_CCFILE:
+    case SSS_AUTHTOK_TYPE_SECRET:
+        return EACCES;
+    case SSS_AUTHTOK_TYPE_OTP:
+        *ccfile = (const char *)tok->data;
+        if (len) {
+            *len = tok->length - 1;
+        }
+        return EOK;
+    case SSS_AUTHTOK_TYPE_SMART_CARD_PIN:
+        return EACCES;
+    }
+
+    return EINVAL;
+}
+
+errno_t sss_authtok_get_smart_card_pin(struct sss_auth_token *tok,
+                                       const char **ccfile, size_t *len)
+{
+    switch (tok->type) {
+    case SSS_AUTHTOK_TYPE_EMPTY:
+        return ENOENT;
+    case SSS_AUTHTOK_TYPE_PASSWORD:
+    case SSS_AUTHTOK_TYPE_CCFILE:
+    case SSS_AUTHTOK_TYPE_SECRET:
+    case SSS_AUTHTOK_TYPE_OTP:
+        return EACCES;
+    case SSS_AUTHTOK_TYPE_SMART_CARD_PIN:
+        *ccfile = (const char *)tok->data;
+        if (len) {
+            *len = tok->length - 1;
+        }
+        return EOK;
     }
 
     return EINVAL;
@@ -140,6 +218,9 @@ void sss_authtok_set_empty(struct sss_auth_token *tok)
     case SSS_AUTHTOK_TYPE_EMPTY:
         return;
     case SSS_AUTHTOK_TYPE_PASSWORD:
+    case SSS_AUTHTOK_TYPE_SECRET:
+    case SSS_AUTHTOK_TYPE_OTP:
+    case SSS_AUTHTOK_TYPE_SMART_CARD_PIN:
         safezero(tok->data, tok->length);
         break;
     case SSS_AUTHTOK_TYPE_CCFILE:
@@ -169,6 +250,33 @@ errno_t sss_authtok_set_ccfile(struct sss_auth_token *tok,
                                   "ccfile", ccfile, len);
 }
 
+errno_t sss_authtok_set_secret(struct sss_auth_token *tok,
+                               const char *secret, size_t len)
+{
+    sss_authtok_set_empty(tok);
+
+    return sss_authtok_set_string(tok, SSS_AUTHTOK_TYPE_SECRET,
+                                  "secret", secret, len);
+}
+
+errno_t sss_authtok_set_otp(struct sss_auth_token *tok,
+                            const char *otp, size_t len)
+{
+    sss_authtok_set_empty(tok);
+
+    return sss_authtok_set_string(tok, SSS_AUTHTOK_TYPE_OTP,
+                                  "otp", otp, len);
+}
+
+errno_t sss_authtok_set_smart_card_pin(struct sss_auth_token *tok,
+                                       const char *pin, size_t len)
+{
+    sss_authtok_set_empty(tok);
+
+    return sss_authtok_set_string(tok, SSS_AUTHTOK_TYPE_SMART_CARD_PIN,
+                                  "pin", pin, len);
+}
+
 errno_t sss_authtok_set(struct sss_auth_token *tok,
                         enum sss_authtok_type type,
                         const uint8_t *data, size_t len)
@@ -178,6 +286,12 @@ errno_t sss_authtok_set(struct sss_auth_token *tok,
         return sss_authtok_set_password(tok, (const char *)data, len);
     case SSS_AUTHTOK_TYPE_CCFILE:
         return sss_authtok_set_ccfile(tok, (const char *)data, len);
+    case SSS_AUTHTOK_TYPE_SECRET:
+        return sss_authtok_set_secret(tok, (const char *)data, len);
+    case SSS_AUTHTOK_TYPE_OTP:
+        return sss_authtok_set_otp(tok, (const char *)data, len);
+    case SSS_AUTHTOK_TYPE_SMART_CARD_PIN:
+        return sss_authtok_set_smart_card_pin(tok, (const char *)data, len);
     case SSS_AUTHTOK_TYPE_EMPTY:
         sss_authtok_set_empty(tok);
         return EOK;
@@ -224,6 +338,33 @@ struct sss_auth_token *sss_authtok_new(TALLOC_CTX *mem_ctx)
 void sss_authtok_wipe_password(struct sss_auth_token *tok)
 {
     if (!tok || tok->type != SSS_AUTHTOK_TYPE_PASSWORD) {
+        return;
+    }
+
+    safezero(tok->data, tok->length);
+}
+
+void sss_authtok_wipe_secret(struct sss_auth_token *tok)
+{
+    if (tok->type != SSS_AUTHTOK_TYPE_SECRET) {
+        return;
+    }
+
+    safezero(tok->data, tok->length);
+}
+
+void sss_authtok_wipe_otp(struct sss_auth_token *tok)
+{
+    if (tok->type != SSS_AUTHTOK_TYPE_OTP) {
+        return;
+    }
+
+    safezero(tok->data, tok->length);
+}
+
+void sss_authtok_wipe_smart_card_pin(struct sss_auth_token *tok)
+{
+    if (tok->type != SSS_AUTHTOK_TYPE_SMART_CARD_PIN) {
         return;
     }
 
