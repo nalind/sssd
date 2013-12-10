@@ -187,8 +187,12 @@ void pam_print_data(int l, struct pam_data *pd)
     DEBUG(l, ("tty: %s\n", PAM_SAFE_ITEM(pd->tty)));
     DEBUG(l, ("ruser: %s\n", PAM_SAFE_ITEM(pd->ruser)));
     DEBUG(l, ("rhost: %s\n", PAM_SAFE_ITEM(pd->rhost)));
-    DEBUG(l, ("authtok type: %d\n", sss_authtok_get_type(pd->authtok)));
-    DEBUG(l, ("newauthtok type: %d\n", sss_authtok_get_type(pd->newauthtok)));
+    DEBUG(l, ("authtok type: %d (%s)\n",
+              sss_authtok_get_type(pd->authtok),
+              sss_authtok_get_type_name(pd->authtok)));
+    DEBUG(l, ("newauthtok type: %d (%s)\n",
+              sss_authtok_get_type(pd->newauthtok),
+              sss_authtok_get_type_name(pd->newauthtok)));
     DEBUG(l, ("priv: %d\n", pd->priv));
     DEBUG(l, ("cli_pid: %d\n", pd->cli_pid));
 }

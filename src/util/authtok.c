@@ -30,6 +30,25 @@ enum sss_authtok_type sss_authtok_get_type(struct sss_auth_token *tok)
     return tok->type;
 }
 
+const char *sss_authtok_get_type_name(struct sss_auth_token *tok)
+{
+    switch (tok->type) {
+    case SSS_AUTHTOK_TYPE_PASSWORD:
+        return "password";
+    case SSS_AUTHTOK_TYPE_CCFILE:
+        return "ccfile";
+    case SSS_AUTHTOK_TYPE_SECRET:
+        return "secret";
+    case SSS_AUTHTOK_TYPE_OTP:
+        return "otp";
+    case SSS_AUTHTOK_TYPE_SMART_CARD_PIN:
+        return "smart card pin";
+    case SSS_AUTHTOK_TYPE_EMPTY:
+        return "empty";
+    }
+    return "unknown";
+}
+
 size_t sss_authtok_get_size(struct sss_auth_token *tok)
 {
     if (!tok) {

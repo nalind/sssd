@@ -37,6 +37,15 @@ struct sss_auth_token;
 enum sss_authtok_type sss_authtok_get_type(struct sss_auth_token *tok);
 
 /**
+ * @brief Returns the token type as a name
+ *
+ * @param tok    A pointer to an sss_auth_token
+ *
+ * @return       A sss_authtok_type (empty, password, ...)
+ */
+const char *sss_authtok_get_type_name(struct sss_auth_token *tok);
+
+/**
  * @brief Returns the token size
  *
  * @param tok    A pointer to an sss_auth_token
