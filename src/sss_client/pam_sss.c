@@ -254,15 +254,15 @@ static size_t add_request_item(uint32_t group,
     memcpy(&buf[rp], &c, sizeof(uint32_t));
     rp += sizeof(uint32_t);
 
+    c = sizeof(group) + sizeof(id) + size;
+    memcpy(&buf[rp], &c, sizeof(uint32_t));
+    rp += sizeof(uint32_t);
+
     c = group;
     memcpy(&buf[rp], &c, sizeof(uint32_t));
     rp += sizeof(uint32_t);
 
     c = id;
-    memcpy(&buf[rp], &c, sizeof(uint32_t));
-    rp += sizeof(uint32_t);
-
-    c = size;
     memcpy(&buf[rp], &c, sizeof(uint32_t));
     rp += sizeof(uint32_t);
 
@@ -419,7 +419,7 @@ static int pack_message_v4(struct pam_items *pi, size_t *size,
     uint32_t tmp;
 
     len = sizeof(uint32_t) +
-          3*sizeof(uint32_t) +
+          4*sizeof(uint32_t) +
           2*sizeof(uint32_t) + pi->pam_user_size +
           sizeof(uint32_t);
     len += *pi->pam_service != '\0' ?
@@ -451,6 +451,8 @@ static int pack_message_v4(struct pam_items *pi, size_t *size,
     SAFEALIGN_SETMEM_UINT32(buf, SSS_START_OF_PAM_REQUEST, &rp);
 
     SAFEALIGN_SETMEM_UINT32(buf, SSS_PAM_ITEM_SUBCMD, &rp);
+    tmp = 2 * sizeof(tmp);
+    SAFEALIGN_SETMEM_UINT32(buf, tmp, &rp);
     SAFEALIGN_SETMEM_UINT32(buf, pi->auth_request.context, &rp);
     tmp = pi->auth_request.step;
     SAFEALIGN_SETMEM_UINT32(buf, tmp, &rp);
