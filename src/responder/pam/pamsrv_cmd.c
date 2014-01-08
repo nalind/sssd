@@ -72,6 +72,31 @@ static int extract_authtok_v2(struct sss_auth_token *tok,
                                            auth_token_length);
         }
         break;
+    case SSS_AUTHTOK_TYPE_SECRET:
+        if (auth_token_length == 0) {
+            sss_authtok_set_empty(tok);
+        } else {
+            ret = sss_authtok_set_secret(tok, (const char *)auth_token_data,
+                                         auth_token_length);
+        }
+        break;
+    case SSS_AUTHTOK_TYPE_OTP:
+        if (auth_token_length == 0) {
+            sss_authtok_set_empty(tok);
+        } else {
+            ret = sss_authtok_set_otp(tok, (const char *)auth_token_data,
+                                      auth_token_length);
+        }
+        break;
+    case SSS_AUTHTOK_TYPE_SMART_CARD_PIN:
+        if (auth_token_length == 0) {
+            sss_authtok_set_empty(tok);
+        } else {
+            ret = sss_authtok_set_smart_card_pin(tok,
+                                                 (const char *)auth_token_data,
+                                                 auth_token_length);
+        }
+        break;
     default:
         return EINVAL;
     }
@@ -146,6 +171,8 @@ static int pam_parse_in_data_v2(struct sss_domain_info *domains,
     int ret;
     uint32_t start;
     uint32_t terminator;
+    uint32_t tmp;
+    struct multi_step_request_item *request_item;
 
     if (blen < 4*sizeof(uint32_t)+2) {
         DEBUG(SSSDBG_CRIT_FAILURE, ("Received data is invalid.\n"));
@@ -160,6 +187,11 @@ static int pam_parse_in_data_v2(struct sss_domain_info *domains,
         DEBUG(SSSDBG_CRIT_FAILURE, ("Received data is invalid.\n"));
         return EINVAL;
     }
+
+    pd->multi_step.request = multi_step_one_shot;
+    pd->multi_step.client_context_id = 0;
+    talloc_free(pd->multi_step.request_list);
+    pd->multi_step.request_list = NULL;
 
     c = sizeof(uint32_t);
     do {
@@ -217,6 +249,32 @@ static int pam_parse_in_data_v2(struct sss_domain_info *domains,
                                              size, body, blen, &c);
                     if (ret != EOK) return ret;
                     break;
+                case SSS_PAM_ITEM_SUBCMD:
+                    if (size != 2 * sizeof(tmp)) return EINVAL;
+                    ret = extract_uint32_t(&tmp, sizeof(tmp), body, blen, &c);
+                    if (ret != EOK) return ret;
+                    pd->multi_step.request = tmp;
+                    ret = extract_uint32_t(&tmp, sizeof(tmp), body, blen, &c);
+                    if (ret != EOK) return ret;
+                    pd->multi_step.client_context_id = tmp;
+                    break;
+                case SSS_PAM_ITEM_AUTH_ANSWER:
+                    if (size < 2 * sizeof(uint32_t) + 1) return EINVAL;
+                    request_item = talloc_ptrtype(pd, request_item);
+                    if (request_item == NULL) return ENOMEM;
+                    ret = extract_uint32_t(&tmp, sizeof(tmp), body, blen, &c);
+                    if (ret != EOK) return ret;
+                    request_item->group = tmp;
+                    ret = extract_uint32_t(&tmp, sizeof(tmp), body, blen, &c);
+                    if (ret != EOK) return ret;
+                    request_item->id = tmp;
+                    ret = extract_string(&request_item->value,
+                                         size - 2 * sizeof(uint32_t),
+                                         body, blen, &c);
+                    if (ret != EOK) return ret;
+                    request_item->next = pd->multi_step.request_list;
+                    pd->multi_step.request_list = request_item;
+                    break;
                 default:
                     DEBUG(1,("Ignoring unknown data type [%d].\n", type));
                     c += size;
@@ -249,6 +307,32 @@ static int pam_parse_in_data_v3(struct sss_domain_info *domains,
     if (pd->cli_pid == 0) {
         DEBUG(1, ("Missing client PID.\n"));
         return EINVAL;
+    }
+
+    return EOK;
+}
+
+static int pam_parse_in_data_v4(struct sss_domain_info *domains,
+                                const char *default_domain,
+                                struct pam_data *pd,
+                                uint8_t *body, size_t blen)
+{
+    int ret;
+
+    ret = pam_parse_in_data_v3(domains, default_domain, pd, body, blen);
+    if (ret != EOK) {
+        DEBUG(1, ("pam_parse_in_data_v3 failed.\n"));
+        return ret;
+    }
+
+    switch (pd->multi_step.request) {
+    case multi_step_cancel:
+        if (pd->multi_step.request_list != NULL) {
+            DEBUG(1, ("Canceling request, but providing answers?\n"));
+            return EINVAL;
+        }
+    default:
+        break;
     }
 
     return EOK;
@@ -503,7 +587,7 @@ static void pam_reply(struct pam_auth_req *preq)
 
                 ret = sss_authtok_get_password(pd->authtok, &password, NULL);
                 if (ret) {
-                    DEBUG(0, ("Failed to get password.\n"));
+                    DEBUG(0, ("Failed to get offline auth password.\n"));
                     goto done;
                 }
 
@@ -744,6 +828,11 @@ errno_t pam_forwarder_parse_data(struct cli_ctx *cctx, struct pam_data *pd)
             break;
         case 3:
             ret = pam_parse_in_data_v3(cctx->rctx->domains,
+                                       cctx->rctx->default_domain, pd,
+                                       body, blen);
+            break;
+        case 4:
+            ret = pam_parse_in_data_v4(cctx->rctx->domains,
                                        cctx->rctx->default_domain, pd,
                                        body, blen);
             break;
@@ -1235,7 +1324,7 @@ static int pam_cmd_chauthtok_prelim(struct cli_ctx *cctx) {
 struct cli_protocol_version *register_cli_protocol_version(void)
 {
     static struct cli_protocol_version pam_cli_protocol_version[] = {
-        {4, "2013-12-31", "multi-step authentication"},
+        {4, "2014-12-31", "multi-step authentication"},
         {3, "2009-09-14", "make cli_pid mandatory"},
         {2, "2009-05-12", "new format <type><size><data>"},
         {1, "2008-09-05", "initial version, \\0 terminated strings"},

@@ -34,6 +34,12 @@ bool dp_pack_pam_request(DBusMessage *msg, struct pam_data *pd)
     uint32_t new_authtok_type;
     uint32_t new_authtok_length;
     uint8_t *new_authtok_data;
+    dbus_bool_t multi_step;
+    uint32_t multi_step_request;
+    struct multi_step_request_item *multi_step_item;
+    DBusMessageIter iter;
+    DBusMessageIter array_iter;
+    DBusMessageIter struct_iter;
 
     if (pd->user == NULL) return false;
     service = pd->service ? pd->service : "";
@@ -46,6 +52,9 @@ bool dp_pack_pam_request(DBusMessage *msg, struct pam_data *pd)
     new_authtok_type = (uint32_t)sss_authtok_get_type(pd->newauthtok);
     new_authtok_data = sss_authtok_get_data(pd->newauthtok);
     new_authtok_length = sss_authtok_get_size(pd->newauthtok);
+    multi_step = pd->multi_step.multi_step;
+    multi_step_request = pd->multi_step.request;
+    multi_step_item = pd->multi_step.request_list;
 
     db_ret = dbus_message_append_args(msg,
                                       DBUS_TYPE_INT32,  &(pd->cmd),
@@ -63,7 +72,72 @@ bool dp_pack_pam_request(DBusMessage *msg, struct pam_data *pd)
                                       &new_authtok_data, new_authtok_length,
                                       DBUS_TYPE_INT32, &(pd->priv),
                                       DBUS_TYPE_UINT32, &(pd->cli_pid),
+                                      DBUS_TYPE_BOOLEAN, &(multi_step),
+                                      DBUS_TYPE_UINT32, &(multi_step_request),
+                                      DBUS_TYPE_INT32,
+                                      &(pd->multi_step.client_context_id),
                                       DBUS_TYPE_INVALID);
+    if (!db_ret) {
+        DEBUG(1, ("dbus_message_append_args failed.\n"));
+        return false;
+    }
+
+    dbus_message_iter_init_append(msg, &iter);
+
+    db_ret = dbus_message_iter_open_container(&iter,
+                                              DBUS_TYPE_ARRAY,
+                                              DBUS_STRUCT_BEGIN_CHAR_AS_STRING
+                                              DBUS_TYPE_UINT32_AS_STRING
+                                              DBUS_TYPE_UINT32_AS_STRING
+                                              DBUS_TYPE_STRING_AS_STRING
+                                              DBUS_STRUCT_END_CHAR_AS_STRING,
+                                              &array_iter);
+    if (!db_ret) {
+        return false;
+    }
+
+    multi_step_item = pd->multi_step.request_list;
+    while (multi_step_item != NULL) {
+        db_ret = dbus_message_iter_open_container(&array_iter,
+                                                  DBUS_TYPE_STRUCT, NULL,
+                                                  &struct_iter);
+        if (!db_ret)  {
+            return false;
+        }
+
+        db_ret = dbus_message_iter_append_basic(&struct_iter,
+                                                DBUS_TYPE_UINT32,
+                                                &multi_step_item->group);
+        if (!db_ret) {
+            return false;
+        }
+
+        db_ret = dbus_message_iter_append_basic(&struct_iter,
+                                                DBUS_TYPE_UINT32,
+                                                &multi_step_item->id);
+        if (!db_ret) {
+            return false;
+        }
+
+        db_ret = dbus_message_iter_append_basic(&struct_iter,
+                                                DBUS_TYPE_STRING,
+                                                &multi_step_item->value);
+        if (!db_ret) {
+            return false;
+        }
+
+        db_ret = dbus_message_iter_close_container(&array_iter, &struct_iter);
+        if (!db_ret) {
+            return false;
+        }
+
+        multi_step_item = multi_step_item->next;
+    }
+
+    db_ret = dbus_message_iter_close_container(&iter, &struct_iter);
+    if (!db_ret) {
+        return false;
+    }
 
     return db_ret;
 }

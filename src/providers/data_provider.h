@@ -177,6 +177,23 @@ struct response_data {
     struct response_data *next;
 };
 
+struct multi_step_data {
+    bool multi_step;
+    int32_t client_context_id;
+    enum multi_step_request {
+        multi_step_one_shot = 0,
+        multi_step_start,
+        multi_step_continue,
+        multi_step_cancel,
+    } request;
+    struct multi_step_request_item {
+        int32_t group;
+        int32_t id;
+        char *value;
+        struct multi_step_request_item *next;
+    } *request_list;
+};
+
 struct pam_data {
     int cmd;
     char *domain;
@@ -192,6 +209,8 @@ struct pam_data {
     int pam_status;
     int response_delay;
     struct response_data *resp_list;
+
+    struct multi_step_data multi_step;
 
     bool offline_auth;
     bool last_auth_saved;
