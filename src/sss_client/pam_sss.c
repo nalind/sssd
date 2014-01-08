@@ -53,6 +53,9 @@
 #define FLAGS_FORWARD_PASS   (1 << 1)
 #define FLAGS_USE_AUTHTOK    (1 << 2)
 #define FLAGS_USE_MULTI_PASS (1 << 3)
+#define FLAGS_AUTHTOK_IS_OTP (1 << 4)
+#define FLAGS_AUTHTOK_IS_PIN (1 << 5)
+#define FLAGS_AUTHTOK_IS_SECRET       (1 << 6)
 
 #define PWEXP_FLAG "pam_sss:password_expired_flag"
 #define FD_DESTRUCTOR "pam_sss:fd_destructor"
@@ -63,15 +66,15 @@
 #define OPT_RETRY_KEY "retry="
 
 struct pam_items {
-    struct sss_pam_v4_request {
+    struct sss_pam_multi_step_request {
         uint32_t context;
-        enum sss_pam_v4_request_subrequest {
+        enum sss_pam_multi_step_request_subrequest {
             sss_pam_one_shot = 0,
             sss_pam_start,
             sss_pam_continue,
             sss_pam_cancel,
         } step;
-        struct sss_pam_v4_request_item {
+        struct sss_pam_multi_step_request_item {
             uint32_t group;
             uint32_t id;
             union {
@@ -97,18 +100,18 @@ struct pam_items {
         } *requests;
         unsigned int n_requests;
     } auth_request;
-    struct sss_pam_v4_reply {
+    struct sss_pam_multi_step_reply {
         uint32_t context;
-        enum sss_pam_v4_reply_substatus {
+        enum sss_pam_multi_step_reply_substatus {
             sss_pam_invalid = 0,
             sss_pam_to_be_continued,
             sss_pam_failed,
             sss_pam_canceled,
             sss_pam_timeout,
             sss_pam_success,
-        } status;
+        } substatus;
         int32_t time_left;
-        struct sss_pam_v4_reply_item {
+        struct sss_pam_multi_step_reply_item {
             uint32_t group;
             uint32_t id;
             enum sss_pam_reply_type {
@@ -1123,7 +1126,7 @@ static int eval_auth_substatus(struct pam_items *pi, uint8_t *p, int32_t len)
     memcpy(&c, p, sizeof(int32_t));
     p += sizeof(int32_t);
     len -= sizeof(int32_t);
-    pi->auth_reply.status = c;
+    pi->auth_reply.substatus = c;
 
     memcpy(&c, p, sizeof(int32_t));
     p += sizeof(int32_t);
@@ -1138,7 +1141,7 @@ static int eval_auth_request(struct pam_items *pi, uint8_t *p, int32_t len)
     int ret;
     unsigned int i;
     uint32_t c;
-    struct sss_pam_v4_reply_item reply, *replies;
+    struct sss_pam_multi_step_reply_item reply, *replies;
     unsigned int n_groups;
 
     if (len < 3 * sizeof(uint32_t)) {
@@ -1402,7 +1405,7 @@ static int get_pam_items(pam_handle_t *pamh, struct pam_items *pi)
     pi->auth_request.requests = NULL;
     pi->auth_request.n_requests = 0;
     pi->auth_reply.context = 0;
-    pi->auth_reply.status = sss_pam_invalid;
+    pi->auth_reply.substatus = sss_pam_invalid;
     pi->auth_reply.time_left = -1;
     pi->auth_reply.replies = NULL;
     pi->auth_reply.n_replies = 0;
@@ -1679,7 +1682,7 @@ static int prompt_new_password(pam_handle_t *pamh, struct pam_items *pi)
     return PAM_SUCCESS;
 }
 
-static char *describe_reply_item(struct sss_pam_v4_reply_item *item,
+static char *describe_reply_item(struct sss_pam_multi_step_reply_item *item,
                                  int *pam_style)
 {
     char *item_desc;
@@ -1813,8 +1816,8 @@ static int prompt_auth_request(pam_handle_t *pamh, struct pam_items *pi,
     struct pam_response *resps;
     char **desc, **group_desc, *item_desc, *tmp;
     int ret, i, j, n_items, group, style;
-    struct sss_pam_v4_request_item *req_item;
-    struct sss_pam_v4_reply_item *reply_item;
+    struct sss_pam_multi_step_request_item *req_item;
+    struct sss_pam_multi_step_reply_item *reply_item;
 
     ret = pam_get_item(pamh, PAM_CONV, (const void **) &conv);
     if (ret != PAM_SUCCESS) {
@@ -1970,6 +1973,12 @@ static void eval_argv(pam_handle_t *pamh, int argc, const char **argv,
             *flags |= FLAGS_USE_AUTHTOK;
         } else if (strcmp(*argv, "multi_pass") == 0) {
             *flags |= FLAGS_USE_MULTI_PASS;
+        } else if (strcmp(*argv, "authtok_is_otp") == 0) {
+            *flags |= FLAGS_AUTHTOK_IS_OTP;
+        } else if (strcmp(*argv, "authtok_is_pin") == 0) {
+            *flags |= FLAGS_AUTHTOK_IS_PIN;
+        } else if (strcmp(*argv, "authtok_is_secret") == 0) {
+            *flags |= FLAGS_AUTHTOK_IS_SECRET;
         } else if (strncmp(*argv, OPT_RETRY_KEY, strlen(OPT_RETRY_KEY)) == 0) {
             if (*(*argv+6) == '\0') {
                 logger(pamh, LOG_ERR, "Missing argument to option retry.");
@@ -2017,10 +2026,17 @@ static int get_authtok_for_authentication(pam_handle_t *pamh,
             return ret;
         }
     } else if (flags & FLAGS_USE_FIRST_PASS) {
-        pi->pam_authtok_type = SSS_AUTHTOK_TYPE_PASSWORD;
+        if (flags & FLAGS_AUTHTOK_IS_OTP)
+            pi->pam_authtok_type = SSS_AUTHTOK_TYPE_OTP;
+        else if (flags & FLAGS_AUTHTOK_IS_PIN)
+            pi->pam_authtok_type = SSS_AUTHTOK_TYPE_SMART_CARD_PIN;
+        else if (flags & FLAGS_AUTHTOK_IS_SECRET)
+            pi->pam_authtok_type = SSS_AUTHTOK_TYPE_SECRET;
+        else
+            pi->pam_authtok_type = SSS_AUTHTOK_TYPE_PASSWORD;
         pi->pam_authtok = strdup(pi->pamstack_authtok);
         if (pi->pam_authtok == NULL) {
-            D(("option use_first_pass set, but no password found"));
+            D(("option use_first_pass set, but no authtok found"));
             return PAM_BUF_ERR;
         }
         pi->pam_authtok_size = strlen(pi->pam_authtok);
@@ -2188,7 +2204,7 @@ static int pam_sss(enum sss_cli_command task, pam_handle_t *pamh,
             case SSS_PAM_AUTHENTICATE:
                 if (flags & FLAGS_USE_MULTI_PASS) {
                     if ((pam_status == PAM_INCOMPLETE) &&
-                        (pi.auth_reply.status == sss_pam_to_be_continued)) {
+                        (pi.auth_reply.substatus == sss_pam_to_be_continued)) {
                         pi.auth_request.step = sss_pam_continue;
                         continue;
                     } else {
