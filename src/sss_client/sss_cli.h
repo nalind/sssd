@@ -303,6 +303,35 @@ enum sss_authtok_type {
  * @}
  */ /* end of group sss_authtok_type */
 
+/**
+ * @defgroup sss_pam_reply_type Multi-step requests
+ * @ingroup sss_pam
+ *
+ * To indicate to a client of the SSSD what the responder expects the
+ * client to do before sending in a "continue" request
+ *
+ * @{
+ */
+
+/** The different types of multi-step requests the responder can make */
+enum sss_pam_reply_type {
+    SSS_PAM_PROMPT_EMPTY = 0,
+    SSS_PAM_PROMPT_PASSWORD,
+    SSS_PAM_PROMPT_CCFILE,
+    SSS_PAM_PROMPT_SECRET,
+    SSS_PAM_PROMPT_OTP,
+    SSS_PAM_PROMPT_SMART_CARD_PIN,
+    SSS_PAM_PROMPT_NEW_PASSWORD,
+    SSS_PAM_PROMPT_OOB_SMART_CARD_PIN,
+    SSS_PAM_PROMPT_INSERT_SMART_CARD,
+    SSS_PAM_PROMPT_SCAN_PROXIMITY_DEVICE,
+    SSS_PAM_PROMPT_SWIPE_FINGER,
+};
+
+/**
+ * @}
+ */ /* end of group sss_pam_reply_type */
+
 #define SSS_START_OF_PAM_REQUEST 0x4d415049
 #define SSS_END_OF_PAM_REQUEST 0x4950414d
 

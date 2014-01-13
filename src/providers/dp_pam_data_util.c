@@ -277,3 +277,204 @@ int pam_add_response(struct pam_data *pd, enum response_type type,
 
     return EOK;
 }
+
+static int pam_add_non_response(struct pam_data *pd,
+                                int32_t group, int32_t id,
+                                int type)
+{
+    unsigned char *buf, *p;
+    uint32_t c;
+
+    buf = talloc_zero_size(pd, 3 * sizeof(int32_t));
+    if (buf == NULL) return ENOMEM;
+
+    p = buf;
+
+    memcpy(p, &group, sizeof(group));
+    p += sizeof(group);
+
+    memcpy(p, &id, sizeof(id));
+    p += sizeof(id);
+
+    c = type;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    pam_add_response(pd, SSS_PAM_ITEM_AUTH_REQUEST, p - buf, buf);
+
+    talloc_free(buf);
+
+    return EOK;
+}
+
+int pam_add_scan_proximity_device_response(struct pam_data *pd,
+                                           int32_t group, int32_t id)
+{
+    return pam_add_non_response(pd, group, id,
+                                SSS_PAM_PROMPT_SCAN_PROXIMITY_DEVICE);
+}
+
+int pam_add_swipe_finger_response(struct pam_data *pd,
+                                  int32_t group, int32_t id)
+{
+    return pam_add_non_response(pd, group, id,
+                                SSS_PAM_PROMPT_SWIPE_FINGER);
+}
+
+int pam_add_secret_response(struct pam_data *pd,
+                            int32_t group, int32_t id,
+                            size_t len, const uint8_t *data)
+{
+    unsigned char *buf, *p;
+    uint32_t c;
+
+    buf = talloc_zero_size(pd, 4 * sizeof(int32_t) + len);
+    if (buf == NULL) return ENOMEM;
+
+    p = buf;
+
+    memcpy(p, &group, sizeof(group));
+    p += sizeof(group);
+
+    memcpy(p, &id, sizeof(id));
+    p += sizeof(id);
+
+    c = SSS_PAM_PROMPT_SECRET;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    c = len;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    if (len > 0) {
+        memcpy(p, data, len);
+        p += len;
+    }
+
+    pam_add_response(pd, SSS_PAM_ITEM_AUTH_REQUEST, p - buf, buf);
+
+    talloc_free(buf);
+
+    return EOK;
+}
+
+int pam_add_otp_response(struct pam_data *pd,
+                         int32_t group, int32_t id,
+                         size_t slen, const uint8_t *service,
+                         size_t vlen, const uint8_t *vendor)
+{
+    unsigned char *buf, *p;
+    uint32_t c;
+
+    buf = talloc_zero_size(pd, 5 * sizeof(int32_t) + slen + vlen);
+    if (buf == NULL) return ENOMEM;
+    p = buf;
+
+    memcpy(p, &group, sizeof(group));
+    p += sizeof(group);
+
+    memcpy(p, &id, sizeof(id));
+    p += sizeof(id);
+
+    c = SSS_PAM_PROMPT_OTP;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    c = slen;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    if (slen > 0) {
+        memcpy(p, service, slen);
+        p += slen;
+    }
+
+    c = vlen;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    if (vlen > 0) {
+        memcpy(p, vendor, vlen);
+        p += vlen;
+    }
+
+    pam_add_response(pd, SSS_PAM_ITEM_AUTH_REQUEST, p - buf, buf);
+    talloc_free(buf);
+
+    return EOK;
+}
+
+int pam_add_smart_card_response(struct pam_data *pd,
+                                int32_t group, int32_t id,
+                                size_t mlen, const uint8_t *module,
+                                int32_t slot_id,
+                                size_t slen, const uint8_t *slot,
+                                size_t tlen, const uint8_t *token)
+{
+    unsigned char *buf, *p;
+    uint32_t c;
+
+    buf = talloc_zero_size(pd, 7 * sizeof(int32_t) + mlen + slen + tlen);
+    if (buf == NULL) return ENOMEM;
+    p = buf;
+
+    memcpy(p, &group, sizeof(group));
+    p += sizeof(group);
+
+    memcpy(p, &id, sizeof(id));
+    p += sizeof(id);
+
+    c = SSS_PAM_PROMPT_SMART_CARD_PIN;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    c = mlen;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    if (mlen > 0) {
+        memcpy(p, module, mlen);
+        p += mlen;
+    }
+
+    c = slot_id;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    c = slen;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    if (slen > 0) {
+        memcpy(p, slot, slen);
+        p += slen;
+    }
+
+    c = tlen;
+    memcpy(p, &c, sizeof(c));
+    p += sizeof(c);
+
+    if (tlen > 0) {
+        memcpy(p, token, tlen);
+        p += tlen;
+    }
+
+    pam_add_response(pd, SSS_PAM_ITEM_AUTH_REQUEST, p - buf, buf);
+    talloc_free(buf);
+
+    return EOK;
+}
+
+int pam_add_insert_smart_card_response(struct pam_data *pd,
+                                       int32_t group, int32_t id,
+                                       size_t mlen, const uint8_t *module,
+                                       int32_t slot_id,
+                                       size_t slen, const uint8_t *slot)
+{
+    return pam_add_smart_card_response(pd, group, id,
+                                       mlen, module,
+                                       slot_id,
+                                       slen, slot,
+                                       0, NULL);
+}

@@ -248,6 +248,28 @@ void pam_print_data(int l, struct pam_data *pd);
 int pam_add_response(struct pam_data *pd,
                      enum response_type type,
                      int len, const uint8_t *data);
+int pam_add_scan_proximity_device_response(struct pam_data *pd,
+                                           int32_t group, int32_t id);
+int pam_add_swipe_finger_response(struct pam_data *pd,
+                                  int32_t group, int32_t id);
+int pam_add_secret_response(struct pam_data *pd,
+                            int32_t group, int32_t id,
+                            size_t len, const uint8_t *data);
+int pam_add_otp_response(struct pam_data *pd,
+                         int32_t group, int32_t id,
+                         size_t slen, const uint8_t *service,
+                         size_t vlen, const uint8_t *vendor);
+int pam_add_smart_card_response(struct pam_data *pd,
+                                int32_t group, int32_t id,
+                                size_t mlen, const uint8_t *module,
+                                int32_t slot_id,
+                                size_t slen, const uint8_t *slot,
+                                size_t tlen, const uint8_t *token);
+int pam_add_insert_smart_card_response(struct pam_data *pd,
+                                       int32_t group, int32_t id,
+                                       size_t mlen, const uint8_t *module,
+                                       int32_t slot_id,
+                                       size_t slen, const uint8_t *slot);
 
 bool dp_pack_pam_request(DBusMessage *msg, struct pam_data *pd);
 bool dp_unpack_pam_request(DBusMessage *msg, TALLOC_CTX *mem_ctx,

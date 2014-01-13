@@ -96,19 +96,7 @@ struct pam_items {
         struct sss_pam_multi_step_reply_item {
             uint32_t group;
             uint32_t id;
-            enum sss_pam_reply_type {
-                SSS_PAM_PROMPT_EMPTY = 0,
-                SSS_PAM_PROMPT_PASSWORD,
-                SSS_PAM_PROMPT_CCFILE,
-                SSS_PAM_PROMPT_SECRET,
-                SSS_PAM_PROMPT_OTP,
-                SSS_PAM_PROMPT_SMART_CARD_PIN,
-                SSS_PAM_PROMPT_NEW_PASSWORD,
-                SSS_PAM_PROMPT_OOB_SMART_CARD_PIN,
-                SSS_PAM_PROMPT_INSERT_SMART_CARD,
-                SSS_PAM_PROMPT_SCAN_PROXIMITY_DEVICE,
-                SSS_PAM_PROMPT_SWIPE_FINGER,
-            } type;
+            enum sss_pam_reply_type type;
             union {
                 struct sss_pam_reply_secret_detail {
                     char *prompt;
