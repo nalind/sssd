@@ -97,11 +97,13 @@ struct pam_items {
             uint32_t group;
             uint32_t id;
             enum sss_pam_reply_type {
-                SSS_PAM_PROMPT_SECRET = 0,
+                SSS_PAM_PROMPT_EMPTY = 0,
                 SSS_PAM_PROMPT_PASSWORD,
-                SSS_PAM_PROMPT_NEW_PASSWORD,
+                SSS_PAM_PROMPT_CCFILE,
+                SSS_PAM_PROMPT_SECRET,
                 SSS_PAM_PROMPT_OTP,
                 SSS_PAM_PROMPT_SMART_CARD_PIN,
+                SSS_PAM_PROMPT_NEW_PASSWORD,
                 SSS_PAM_PROMPT_OOB_SMART_CARD_PIN,
                 SSS_PAM_PROMPT_INSERT_SMART_CARD,
                 SSS_PAM_PROMPT_SCAN_PROXIMITY_DEVICE,
@@ -111,6 +113,9 @@ struct pam_items {
                 struct sss_pam_reply_secret_detail {
                     char *prompt;
                 } secret;
+                struct sss_pam_reply_ccfile {
+                    char *pathname;
+                } ccfile;
                 struct sss_pam_reply_otp_detail {
                     uint32_t token_id;
                     char *service;
@@ -344,6 +349,10 @@ static void overwrite_and_free_auth_reply_items(struct pam_items *pi)
         case SSS_PAM_PROMPT_SCAN_PROXIMITY_DEVICE:
             break;
         case SSS_PAM_PROMPT_SWIPE_FINGER:
+            break;
+        case SSS_PAM_PROMPT_EMPTY:
+            break;
+        case SSS_PAM_PROMPT_CCFILE:
             break;
         case SSS_PAM_PROMPT_INSERT_SMART_CARD:
         case SSS_PAM_PROMPT_SMART_CARD_PIN:
@@ -1154,7 +1163,18 @@ static int eval_auth_request(struct pam_items *pi, uint8_t *p, int32_t len)
     reply.type = c;
 
     switch (reply.type) {
+    case SSS_PAM_PROMPT_EMPTY:
     case SSS_PAM_PROMPT_PASSWORD:
+        break;
+    case SSS_PAM_PROMPT_CCFILE:
+        if (len < sizeof(uint32_t)) {
+            return PAM_BUF_ERR;
+        }
+        ret = eval_reply_string(&p, &len, &reply.detail.ccfile.pathname);
+        if (ret != 0) {
+            return ret;
+        }
+        break;
     case SSS_PAM_PROMPT_NEW_PASSWORD:
     case SSS_PAM_PROMPT_SCAN_PROXIMITY_DEVICE:
     case SSS_PAM_PROMPT_SWIPE_FINGER:
@@ -1677,6 +1697,19 @@ static char *describe_reply_item(struct sss_pam_multi_step_reply_item *item,
     int style;
 
     switch (item->type) {
+    case SSS_PAM_PROMPT_EMPTY:
+        item_desc = strdup("");
+        style = PAM_PROMPT_ECHO_OFF;
+        break;
+    case SSS_PAM_PROMPT_CCFILE:
+        if (asprintf(&item_desc, _("Cache file (%s)"),
+                     item->detail.ccfile.pathname) < 0) {
+            item_desc = NULL;
+        } else {
+            item_desc = strdup(_("Cache file"));
+        }
+        style = PAM_PROMPT_ECHO_OFF;
+        break;
     case SSS_PAM_PROMPT_SECRET:
         if (asprintf(&item_desc, _("Secret (%s)"),
                      item->detail.secret.prompt) < 0) {
