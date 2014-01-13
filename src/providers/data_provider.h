@@ -248,6 +248,8 @@ void pam_print_data(int l, struct pam_data *pd);
 int pam_add_response(struct pam_data *pd,
                      enum response_type type,
                      int len, const uint8_t *data);
+int pam_add_password_response(struct pam_data *pd,
+                              int32_t group, int32_t id);
 int pam_add_scan_proximity_device_response(struct pam_data *pd,
                                            int32_t group, int32_t id);
 int pam_add_swipe_finger_response(struct pam_data *pd,

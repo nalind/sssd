@@ -307,6 +307,13 @@ static int pam_add_non_response(struct pam_data *pd,
     return EOK;
 }
 
+int pam_add_password_response(struct pam_data *pd,
+                              int32_t group, int32_t id)
+{
+    return pam_add_non_response(pd, group, id,
+                                SSS_PAM_PROMPT_PASSWORD);
+}
+
 int pam_add_scan_proximity_device_response(struct pam_data *pd,
                                            int32_t group, int32_t id)
 {
