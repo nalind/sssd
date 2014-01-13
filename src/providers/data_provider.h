@@ -267,6 +267,12 @@ int pam_add_smart_card_response(struct pam_data *pd,
                                 int32_t slot_id,
                                 size_t slen, const uint8_t *slot,
                                 size_t tlen, const uint8_t *token);
+int pam_add_oob_smart_card_response(struct pam_data *pd,
+                                    int32_t group, int32_t id,
+                                    size_t mlen, const uint8_t *module,
+                                    int32_t slot_id,
+                                    size_t slen, const uint8_t *slot,
+                                    size_t tlen, const uint8_t *token);
 int pam_add_insert_smart_card_response(struct pam_data *pd,
                                        int32_t group, int32_t id,
                                        size_t mlen, const uint8_t *module,

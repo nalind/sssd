@@ -412,12 +412,16 @@ int pam_add_otp_response(struct pam_data *pd,
     return EOK;
 }
 
-int pam_add_smart_card_response(struct pam_data *pd,
-                                int32_t group, int32_t id,
-                                size_t mlen, const uint8_t *module,
-                                int32_t slot_id,
-                                size_t slen, const uint8_t *slot,
-                                size_t tlen, const uint8_t *token)
+static int pam_add_common_smart_card_response(struct pam_data *pd,
+                                              int32_t group, int32_t id,
+                                              int32_t type,
+                                              size_t mlen,
+                                              const uint8_t *module,
+                                              int32_t slot_id,
+                                              size_t slen,
+                                              const uint8_t *slot,
+                                              size_t tlen,
+                                              const uint8_t *token)
 {
     unsigned char *buf, *p;
     uint32_t c;
@@ -432,9 +436,8 @@ int pam_add_smart_card_response(struct pam_data *pd,
     memcpy(p, &id, sizeof(id));
     p += sizeof(id);
 
-    c = SSS_PAM_PROMPT_SMART_CARD_PIN;
-    memcpy(p, &c, sizeof(c));
-    p += sizeof(c);
+    memcpy(p, &type, sizeof(type));
+    p += sizeof(type);
 
     c = mlen;
     memcpy(p, &c, sizeof(c));
@@ -473,15 +476,46 @@ int pam_add_smart_card_response(struct pam_data *pd,
     return EOK;
 }
 
+int pam_add_smart_card_response(struct pam_data *pd,
+                                int32_t group, int32_t id,
+                                size_t mlen, const uint8_t *module,
+                                int32_t slot_id,
+                                size_t slen, const uint8_t *slot,
+                                size_t tlen, const uint8_t *token)
+{
+    return pam_add_common_smart_card_response(pd, group, id,
+                                              SSS_PAM_PROMPT_SMART_CARD_PIN,
+                                              mlen, module,
+                                              slot_id,
+                                              slen, slot,
+                                              tlen, token);
+}
+
+int pam_add_oob_smart_card_response(struct pam_data *pd,
+                                    int32_t group, int32_t id,
+                                    size_t mlen, const uint8_t *module,
+                                    int32_t slot_id,
+                                    size_t slen, const uint8_t *slot,
+                                    size_t tlen, const uint8_t *token)
+{
+    return pam_add_common_smart_card_response(pd, group, id,
+                                              SSS_PAM_PROMPT_OOB_SMART_CARD_PIN,
+                                              mlen, module,
+                                              slot_id,
+                                              slen, slot,
+                                              tlen, token);
+}
+
 int pam_add_insert_smart_card_response(struct pam_data *pd,
                                        int32_t group, int32_t id,
                                        size_t mlen, const uint8_t *module,
                                        int32_t slot_id,
                                        size_t slen, const uint8_t *slot)
 {
-    return pam_add_smart_card_response(pd, group, id,
-                                       mlen, module,
-                                       slot_id,
-                                       slen, slot,
-                                       0, NULL);
+    return pam_add_common_smart_card_response(pd, group, id,
+                                              SSS_PAM_PROMPT_INSERT_SMART_CARD,
+                                              mlen, module,
+                                              slot_id,
+                                              slen, slot,
+                                              0, NULL);
 }
