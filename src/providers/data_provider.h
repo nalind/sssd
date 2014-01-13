@@ -189,7 +189,7 @@ struct multi_step_data {
     struct multi_step_request_item {
         int32_t group;
         int32_t id;
-        char *value;
+        struct sss_auth_token *value;
         struct multi_step_request_item *next;
     } *request_list;
 };

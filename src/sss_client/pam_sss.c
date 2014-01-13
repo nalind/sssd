@@ -77,26 +77,8 @@ struct pam_items {
         struct sss_pam_multi_step_request_item {
             uint32_t group;
             uint32_t id;
-            union {
-                struct sss_pam_request_password {
-                    char *password;
-                } password;
-                struct sss_pam_request_new_password {
-                    char *new_password;
-                } new_password;
-                struct sss_pam_request_secret {
-                    char *secret;
-                } secret;
-                struct sss_pam_request_otp {
-                    char *otp;
-                } otp;
-                struct sss_pam_request_smart_card_pin {
-                    char *pin;
-                } smart_card_pin;
-                struct sss_pam_request_generic {
-                    char *value;
-                } unspecified;
-            } detail;
+            enum sss_authtok_type type;
+            char *value;
         } *requests;
         unsigned int n_requests;
     } auth_request;
@@ -246,6 +228,7 @@ static size_t add_authtok_item(enum pam_item_type type,
 
 static size_t add_request_item(uint32_t group,
                                uint32_t id,
+                               enum sss_authtok_type authtok_type,
                                const char *tok, const size_t size,
                                uint8_t *buf) {
     size_t rp=0;
@@ -257,7 +240,7 @@ static size_t add_request_item(uint32_t group,
     memcpy(&buf[rp], &c, sizeof(uint32_t));
     rp += sizeof(uint32_t);
 
-    c = sizeof(group) + sizeof(id) + size;
+    c = sizeof(group) + sizeof(id) + sizeof(c) + size;
     memcpy(&buf[rp], &c, sizeof(uint32_t));
     rp += sizeof(uint32_t);
 
@@ -266,6 +249,10 @@ static size_t add_request_item(uint32_t group,
     rp += sizeof(uint32_t);
 
     c = id;
+    memcpy(&buf[rp], &c, sizeof(uint32_t));
+    rp += sizeof(uint32_t);
+
+    c = authtok_type;
     memcpy(&buf[rp], &c, sizeof(uint32_t));
     rp += sizeof(uint32_t);
 
@@ -322,7 +309,7 @@ static void overwrite_and_free_auth_request_items(struct pam_items *pi)
     char *tmp;
 
     for (i = 0; i < pi->auth_request.n_requests; i++) {
-        tmp = pi->auth_request.requests[i].detail.unspecified.value;
+        tmp = pi->auth_request.requests[i].value;
         _pam_overwrite_n(tmp, strlen(tmp));
         free(tmp);
     }
@@ -440,8 +427,8 @@ static int pack_message_v4(struct pam_items *pi, size_t *size,
     len += 3*sizeof(uint32_t); /* cli_pid */
 
     for (i = 0; i < pi->auth_request.n_requests; i++) {
-        tmp = strlen(pi->auth_request.requests[i].detail.unspecified.value);
-        len += 4 * sizeof(uint32_t) + tmp;
+        tmp = strlen(pi->auth_request.requests[i].value);
+        len += 5 * sizeof(uint32_t) + tmp;
     }
 
     buf = malloc(len);
@@ -486,10 +473,11 @@ static int pack_message_v4(struct pam_items *pi, size_t *size,
                            &buf[rp]);
 
     for (i = 0; i < pi->auth_request.n_requests; i++) {
-        tmp = strlen(pi->auth_request.requests[i].detail.unspecified.value);
+        tmp = strlen(pi->auth_request.requests[i].value);
         rp += add_request_item(pi->auth_request.requests[i].group,
                                pi->auth_request.requests[i].id,
-                               pi->auth_request.requests[i].detail.unspecified.value,
+                               pi->auth_request.requests[i].type,
+                               pi->auth_request.requests[i].value,
                                tmp,
                                &buf[rp]);
     }
@@ -1938,8 +1926,8 @@ static int prompt_auth_request(pam_handle_t *pamh, struct pam_items *pi,
             if ((resps != NULL) &&
                 (resps[j].resp_retcode == PAM_SUCCESS) &&
                 (resps[j].resp != NULL)) {
-                req_item->detail.unspecified.value = strdup(resps[j].resp);
-                if (req_item->detail.unspecified.value == NULL) {
+                req_item->value = strdup(resps[j].resp);
+                if (req_item->value == NULL) {
                     return PAM_BUF_ERR;
                 }
                 free(resps[j].resp);

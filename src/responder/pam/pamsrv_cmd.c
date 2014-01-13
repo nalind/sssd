@@ -268,9 +268,11 @@ static int pam_parse_in_data_v2(struct sss_domain_info *domains,
                     ret = extract_uint32_t(&tmp, sizeof(tmp), body, blen, &c);
                     if (ret != EOK) return ret;
                     request_item->id = tmp;
-                    ret = extract_string(&request_item->value,
-                                         size - 2 * sizeof(uint32_t),
-                                         body, blen, &c);
+                    request_item->value = sss_authtok_new(request_item);
+                    if (request_item->value == NULL) return ENOMEM;
+                    ret = extract_authtok_v2(&request_item->value,
+                                             size - 2 * sizeof(uint32_t),
+                                             body, blen, &c);
                     if (ret != EOK) return ret;
                     request_item->next = pd->multi_step.request_list;
                     pd->multi_step.request_list = request_item;

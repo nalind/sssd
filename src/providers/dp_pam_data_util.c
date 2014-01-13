@@ -51,10 +51,16 @@ static const char *pamcmd2str(int cmd) {
 int pam_data_destructor(void *ptr)
 {
     struct pam_data *pd = talloc_get_type(ptr, struct pam_data);
+    struct multi_step_request_item *item = pd->multi_step.request_list;
 
     /* make sure to wipe any password from memory before freeing */
     sss_authtok_wipe_password(pd->authtok);
     sss_authtok_wipe_password(pd->newauthtok);
+
+    while (item != NULL) {
+        sss_authtok_set_empty(item->value);
+        item = item->next;
+    }
 
     return 0;
 }
@@ -94,6 +100,7 @@ errno_t copy_pam_data(TALLOC_CTX *mem_ctx, struct pam_data *src,
                       struct pam_data **dst)
 {
     struct pam_data *pd = NULL;
+    struct multi_step_request_item **dstitem, *srcitem;
     errno_t ret;
 
     pd = create_pam_data(mem_ctx);
@@ -166,6 +173,31 @@ errno_t copy_pam_data(TALLOC_CTX *mem_ctx, struct pam_data *src,
             ret = ENOMEM;
             goto failed;
         }
+    }
+
+    pd->multi_step.multi_step = src->multi_step.multi_step;
+    pd->multi_step.request = src->multi_step.request;
+    srcitem = src->multi_step.request_list;
+    dstitem = &pd->multi_step.request_list;
+    while (srcitem != NULL) {
+        *dstitem = talloc_ptrtype(pd, srcitem);
+        if (*dstitem == NULL) {
+            ret = ENOMEM;
+            goto failed;
+        }
+        (*dstitem)->group = srcitem->group;
+        (*dstitem)->id = srcitem->id;
+        (*dstitem)->value = sss_authtok_new(*dstitem);
+        (*dstitem)->next = NULL;
+        if ((*dstitem)->value == NULL) {
+            ret = ENOMEM;
+            goto failed;
+        }
+        ret = sss_authtok_copy(srcitem->value, (*dstitem)->value);
+        if (ret != EOK) {
+            goto failed;
+        }
+        dstitem = &((*dstitem)->next);
     }
 
     *dst = pd;
