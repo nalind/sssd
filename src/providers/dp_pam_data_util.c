@@ -212,6 +212,8 @@ failed:
 
 void pam_print_data(int l, struct pam_data *pd)
 {
+    struct multi_step_request_item *item;
+
     DEBUG(l, ("command: %s\n", pamcmd2str(pd->cmd)));
     DEBUG(l, ("domain: %s\n", PAM_SAFE_ITEM(pd->domain)));
     DEBUG(l, ("user: %s\n", PAM_SAFE_ITEM(pd->user)));
@@ -227,6 +229,34 @@ void pam_print_data(int l, struct pam_data *pd)
               sss_authtok_get_type_name(pd->newauthtok)));
     DEBUG(l, ("priv: %d\n", pd->priv));
     DEBUG(l, ("cli_pid: %d\n", pd->cli_pid));
+    DEBUG(l, ("multi_step: %s\n", pd->multi_step.multi_step ? "yes" : "no"));
+    if (pd->multi_step.multi_step) {
+        DEBUG(l, ("client context: %d\n", pd->multi_step.client_context_id));
+        switch (pd->multi_step.request) {
+        case multi_step_one_shot:
+            DEBUG(l, ("subrequest: one-shot\n"));
+            break;
+        case multi_step_start:
+            DEBUG(l, ("subrequest: start\n"));
+            break;
+        case multi_step_continue:
+            DEBUG(l, ("subrequest: continue\n"));
+            break;
+        case multi_step_cancel:
+            DEBUG(l, ("subrequest: cancel\n"));
+            break;
+        default:
+            break;
+        }
+        for (item = pd->multi_step.request_list;
+             item != NULL;
+             item = item->next) {
+            DEBUG(l, ("authtok %d.%d: %d (%s)",
+                  item->group, item->id,
+                  sss_authtok_get_type(item->value),
+                  sss_authtok_get_type_name(item->value)));
+        }
+    }
 }
 
 int pam_add_response(struct pam_data *pd, enum response_type type,
