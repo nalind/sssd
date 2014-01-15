@@ -211,6 +211,7 @@ struct pam_data {
     struct response_data *resp_list;
 
     struct multi_step_data multi_step;
+    bool multi_step_continue_expected;
 
     bool offline_auth;
     bool last_auth_saved;

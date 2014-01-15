@@ -355,12 +355,21 @@ bool dp_pack_pam_response(DBusMessage *msg, struct pam_data *pd)
     DBusMessageIter array_iter;
     DBusMessageIter struct_iter;
     DBusMessageIter data_iter;
+    dbus_bool_t multi_step_continue_expected;
 
     dbus_message_iter_init_append(msg, &iter);
 
     /* Append the PAM status */
     dbret = dbus_message_iter_append_basic(&iter,
                                    DBUS_TYPE_UINT32, &(pd->pam_status));
+    if (!dbret) {
+        return false;
+    }
+
+    multi_step_continue_expected = pd->multi_step_continue_expected;
+    dbret = dbus_message_iter_append_basic(&iter,
+                                           DBUS_TYPE_BOOLEAN,
+                                           &multi_step_continue_expected);
     if (!dbret) {
         return false;
     }
@@ -433,6 +442,7 @@ bool dp_unpack_pam_response(DBusMessage *msg, struct pam_data *pd, DBusError *db
     int type;
     int len;
     const uint8_t *data;
+    dbus_bool_t multi_step_continue_expected;
 
     if (!dbus_message_iter_init(msg, &iter)) {
         DEBUG(1, ("pam response has no arguments.\n"));
@@ -444,6 +454,18 @@ bool dp_unpack_pam_response(DBusMessage *msg, struct pam_data *pd, DBusError *db
         return false;
     }
     dbus_message_iter_get_basic(&iter, &(pd->pam_status));
+
+    if (!dbus_message_iter_next(&iter)) {
+        DEBUG(1, ("pam response has too few arguments.\n"));
+        return false;
+    }
+
+    if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_BOOLEAN) {
+        DEBUG(1, ("pam response format error.\n"));
+        return false;
+    }
+    dbus_message_iter_get_basic(&iter, &multi_step_continue_expected);
+    pd->multi_step_continue_expected = multi_step_continue_expected;
 
     if (!dbus_message_iter_next(&iter)) {
         DEBUG(1, ("pam response has too few arguments.\n"));

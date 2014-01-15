@@ -199,6 +199,7 @@ errno_t copy_pam_data(TALLOC_CTX *mem_ctx, struct pam_data *src,
         }
         dstitem = &((*dstitem)->next);
     }
+    pd->multi_step_continue_expected = src->multi_step_continue_expected;
 
     *dst = pd;
 
@@ -252,11 +253,13 @@ void pam_print_data(int l, struct pam_data *pd)
              item != NULL;
              item = item->next) {
             DEBUG(l, ("authtok %d.%d: %d (%s)",
-                  item->group, item->id,
-                  sss_authtok_get_type(item->value),
-                  sss_authtok_get_type_name(item->value)));
+                      item->group, item->id,
+                      sss_authtok_get_type(item->value),
+                      sss_authtok_get_type_name(item->value)));
         }
     }
+    DEBUG(l, ("multi_step_continue_expected: %s\n",
+              pd->multi_step_continue_expected ? "yes" : "no"));
 }
 
 int pam_add_response(struct pam_data *pd, enum response_type type,
